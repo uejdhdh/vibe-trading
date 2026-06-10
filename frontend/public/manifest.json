@@ -1,11 +1,11 @@
 {
-  "name": "Vibe-Trading",
-  "short_name": "VibeTrading",
-  "description": "AI-powered financial research and trading analysis agent",
+  "name": "Orange Trade",
+  "short_name": "OrangeTrade",
+  "description": "AI-powered trading research assistant",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0a0a0b",
-  "theme_color": "#0a0a0b",
+  "background_color": "#0c0c0d",
+  "theme_color": "#f97316",
   "orientation": "any",
   "icons": [
     {
