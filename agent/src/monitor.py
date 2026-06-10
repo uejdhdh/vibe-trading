@@ -116,17 +116,21 @@ def fetch_quote(symbol: str) -> MonitorQuote:
     quote = MonitorQuote(symbol=symbol)
     closes: list[float] = []
 
-    # Try yfinance first
+    # Try yfinance with session retry
     try:
         import yfinance as yf
-        t = yf.Ticker(symbol)
-        info = t.info or {}
-        hist = t.history(period="6mo")
-        if not hist.empty:
+        import requests
+        session = requests.Session()
+        session.headers.update({"User-Agent": "Mozilla/5.0"})
+        t = yf.Ticker(symbol, session=session)
+        info = t.info if t.info else {}
+        hist = t.history(period="3mo")
+        if hist is not None and not hist.empty:
             closes = hist["Close"].tolist()
-            quote.price = round(float(closes[-1]), 2)
-            quote.change_pct = round((closes[-1] / closes[-2] - 1) * 100, 2) if len(closes) >= 2 else 0
-            quote.volume = float(hist["Volume"].iloc[-1]) if "Volume" in hist else 0
+            if closes:
+                quote.price = round(float(closes[-1]), 2)
+                quote.change_pct = round((closes[-1] / closes[-2] - 1) * 100, 2) if len(closes) >= 2 else 0
+                quote.volume = float(hist["Volume"].iloc[-1]) if "Volume" in hist else 0
         if info:
             quote.name = str(info.get("shortName") or info.get("longName") or "")
             quote.high_52w = float(info.get("fiftyTwoWeekHigh") or 0)
@@ -138,36 +142,67 @@ def fetch_quote(symbol: str) -> MonitorQuote:
     if not closes:
         try:
             import akshare as ak
-            import pandas as pd
             df = None
             if symbol.endswith(".HK"):
                 code = symbol.replace(".HK", "")
-                df = ak.stock_hk_hist(symbol=code, period="daily", adjust="qfq")
+                try:
+                    df = ak.stock_hk_hist(symbol=code, period="daily", adjust="qfq")
+                except Exception:
+                    df = ak.stock_hk_hist(symbol=code, period="daily", adjust="")
             elif symbol.endswith((".SZ", ".SH")):
                 code = symbol.replace(".SZ", "").replace(".SH", "")
-                df = ak.stock_zh_a_hist(symbol=code, period="daily", adjust="qfq")
-            elif not any(symbol.endswith(s) for s in [".HK", ".SZ", ".SH", ".SS", ".T", ".L"]):
-                # Try as US stock
+                try:
+                    df = ak.stock_zh_a_hist(symbol=code, period="daily", adjust="qfq")
+                except Exception:
+                    df = ak.stock_zh_a_hist(symbol=code, period="daily", adjust="")
+            else:
+                # Try US stock
                 try:
                     df = ak.stock_us_hist(symbol=symbol, period="daily", adjust="qfq")
                 except Exception:
-                    pass
+                    df = ak.stock_us_hist(symbol=symbol, period="daily", adjust="")
             if df is not None and not df.empty:
-                col = "收盘" if "收盘" in df.columns else ("close" if "close" in df.columns else df.columns[3])
+                col = None
+                for c in ["收盘", "close", "Close"]:
+                    if c in df.columns:
+                        col = c
+                        break
+                if col is None:
+                    col = df.columns[3] if len(df.columns) > 3 else df.columns[-1]
                 closes_col = df[col].tolist()
-                closes = [float(v) for v in closes_col if v]
-                quote.price = round(float(closes[-1]), 2)
-                if len(closes) >= 2:
-                    quote.change_pct = round((closes[-1] / closes[-2] - 1) * 100, 2)
-                vol_col = "成交量" if "成交量" in df.columns else ("volume" if "volume" in df.columns else None)
-                if vol_col:
-                    quote.volume = float(df.iloc[-1].get(vol_col, 0) or 0)
+                closes = [float(v) for v in closes_col if v and str(v) != "nan"]
+                if closes:
+                    quote.price = round(float(closes[-1]), 2)
+                    if len(closes) >= 2:
+                        quote.change_pct = round((closes[-1] / closes[-2] - 1) * 100, 2)
         except Exception as e:
             quote.error = f"数据获取失败: {str(e)[:150]}"
             return quote
 
+    # Fallback: ddgs web search for price
     if not closes:
-        quote.error = "无法获取数据"
+        try:
+            from ddgs import DDGS
+            with DDGS() as ddg:
+                results = list(ddg.text(f"{symbol} stock price today", max_results=3))
+                for r in results:
+                    quote.name = r.get("title", "")[:100]
+                    body = r.get("body", "")
+                    if "$" in body or "¥" in body or "HK$" in body:
+                        import re
+                        prices = re.findall(r'[\$¥HK\$\s]*(\d+\.?\d*)', body)
+                        if prices:
+                            quote.price = float(prices[0])
+                            quote.change_pct = 0
+                        break
+            if quote.price > 0:
+                quote.error = "仅获取到价格（来自搜索引擎）"
+                return quote
+        except Exception:
+            pass
+
+    if not closes:
+        quote.error = "无法获取数据，请稍后重试。yfinance 和 akshare 均不可用。"
         return quote
 
     quote.signals = _detect_signals(closes, quote.price)
