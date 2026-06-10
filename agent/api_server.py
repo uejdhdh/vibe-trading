@@ -1672,10 +1672,24 @@ async def auth_login(req: LoginRequest):
 @app.post("/auth/admin", response_model=AuthResponse)
 async def auth_admin(req: AdminLoginRequest):
     """Login as admin using the API_AUTH_KEY."""
-    api_key = _configured_api_key()
-    if not api_key or not hmac.compare_digest(req.admin_key, api_key):
-        raise HTTPException(status_code=401, detail="Invalid admin key")
+    api_key = _configured_api_key().strip()
+    if not api_key:
+        raise HTTPException(status_code=503, detail="API_AUTH_KEY not configured on server")
+    if not hmac.compare_digest(req.admin_key.strip(), api_key):
+        raise HTTPException(status_code=401, detail="管理员密钥错误")
     return AuthResponse(token=api_key, username="Admin", is_admin=True)
+
+
+@app.get("/auth/status")
+async def auth_status():
+    """Debug: check auth system status."""
+    api_key = _configured_api_key().strip()
+    store = _get_user_store()
+    return {
+        "api_key_configured": bool(api_key),
+        "api_key_length": len(api_key),
+        "user_count": store.user_count(),
+    }
 
 
 # ============================================================================
