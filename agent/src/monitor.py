@@ -134,26 +134,36 @@ def fetch_quote(symbol: str) -> MonitorQuote:
     except Exception as e:
         logger.debug("yfinance fetch failed for %s: %s", symbol, e)
 
-    # Fallback: akshare for A-shares & HK
+    # Fallback: akshare
     if not closes:
         try:
             import akshare as ak
+            import pandas as pd
+            df = None
             if symbol.endswith(".HK"):
                 code = symbol.replace(".HK", "")
                 df = ak.stock_hk_hist(symbol=code, period="daily", adjust="qfq")
             elif symbol.endswith((".SZ", ".SH")):
                 code = symbol.replace(".SZ", "").replace(".SH", "")
                 df = ak.stock_zh_a_hist(symbol=code, period="daily", adjust="qfq")
-            else:
-                raise ValueError("Unsupported symbol")
+            elif not any(symbol.endswith(s) for s in [".HK", ".SZ", ".SH", ".SS", ".T", ".L"]):
+                # Try as US stock
+                try:
+                    df = ak.stock_us_hist(symbol=symbol, period="daily", adjust="qfq")
+                except Exception:
+                    pass
             if df is not None and not df.empty:
-                closes = df["收盘"].tolist()
+                col = "收盘" if "收盘" in df.columns else ("close" if "close" in df.columns else df.columns[3])
+                closes_col = df[col].tolist()
+                closes = [float(v) for v in closes_col if v]
                 quote.price = round(float(closes[-1]), 2)
                 if len(closes) >= 2:
                     quote.change_pct = round((closes[-1] / closes[-2] - 1) * 100, 2)
-                quote.volume = float(df.iloc[-1].get("成交量", 0)) if "成交量" in df.columns else 0
+                vol_col = "成交量" if "成交量" in df.columns else ("volume" if "volume" in df.columns else None)
+                if vol_col:
+                    quote.volume = float(df.iloc[-1].get(vol_col, 0) or 0)
         except Exception as e:
-            quote.error = str(e)[:200]
+            quote.error = f"数据获取失败: {str(e)[:150]}"
             return quote
 
     if not closes:

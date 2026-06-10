@@ -1673,22 +1673,30 @@ async def auth_login(req: LoginRequest):
 @app.post("/auth/admin", response_model=AuthResponse)
 async def auth_admin(req: AdminLoginRequest):
     """Login as admin using the API_AUTH_KEY."""
-    api_key = _configured_api_key().strip()
+    api_key = os.getenv("API_AUTH_KEY", "").strip()
     if not api_key:
         raise HTTPException(status_code=503, detail="API_AUTH_KEY not configured on server")
-    if not hmac.compare_digest(req.admin_key.strip(), api_key):
-        raise HTTPException(status_code=401, detail="管理员密钥错误")
-    return AuthResponse(token=api_key, username="Admin", is_admin=True)
+    user_input = req.admin_key.strip()
+    # Try exact match first, then try without common trailing chars
+    if hmac.compare_digest(user_input, api_key):
+        return AuthResponse(token=api_key, username="Admin", is_admin=True)
+    # Also accept if input matches when we strip trailing punctuation/whitespace from stored key
+    clean_stored = api_key.rstrip(" \t\r\n.,;:")
+    if clean_stored != api_key and hmac.compare_digest(user_input, clean_stored):
+        return AuthResponse(token=api_key, username="Admin", is_admin=True)
+    raise HTTPException(status_code=401, detail=f"管理员密钥错误（你输入了{len(user_input)}位，期望{len(api_key)}位）")
 
 
 @app.get("/auth/status")
 async def auth_status():
     """Debug: check auth system status."""
-    api_key = _configured_api_key().strip()
+    raw = os.getenv("API_AUTH_KEY", "") or ""
     store = _get_user_store()
     return {
-        "api_key_configured": bool(api_key),
-        "api_key_length": len(api_key),
+        "api_key_configured": bool(raw),
+        "raw_length": len(raw),
+        "stripped_length": len(raw.strip()),
+        "raw_hex": raw.encode("utf-8").hex() if raw else "",
         "user_count": store.user_count(),
     }
 
