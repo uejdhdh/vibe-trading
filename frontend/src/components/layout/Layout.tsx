@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 import { api, type SessionItem } from "@/lib/api";
 import { useAgentStore } from "@/stores/agent";
 import { ConnectionBanner } from "@/components/layout/ConnectionBanner";
-import { getUsername, clearUserAuth } from "@/lib/userAuth";
+import { getUsername, clearUserAuth, isAdmin } from "@/lib/userAuth";
 
 export function Layout() {
   const { pathname } = useLocation();
@@ -131,6 +131,11 @@ export function Layout() {
                       >
                         <MessageSquare className="h-3.5 w-3.5 shrink-0 opacity-60" />
                         <span className="flex-1 truncate">{s.title || s.session_id.slice(0, 12)}</span>
+                        {isAdmin() && s.user_id && (
+                          <span className="text-[9px] text-muted-foreground/50 font-mono shrink-0" title={s.user_id}>
+                            {s.user_id.slice(0, 6)}
+                          </span>
+                        )}
                         <div className="hidden group-hover:flex items-center gap-0.5 ml-1">
                           <span
                             onClick={(e) => { e.stopPropagation(); setRenameId(s.session_id); setRenameVal(s.title || ""); }}

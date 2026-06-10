@@ -437,6 +437,7 @@ export interface SessionItem {
   created_at?: string;
   updated_at?: string;
   last_attempt_id?: string;
+  user_id?: string;
 }
 
 // --- Goal types ---

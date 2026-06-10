@@ -226,6 +226,7 @@ class SessionResponse(BaseModel):
     created_at: str
     updated_at: str
     last_attempt_id: Optional[str] = None
+    user_id: str = ""
 
 
 class SendMessageRequest(BaseModel):
@@ -1640,6 +1641,11 @@ class LoginRequest(BaseModel):
 class AuthResponse(BaseModel):
     token: str
     username: str
+    is_admin: bool = False
+
+
+class AdminLoginRequest(BaseModel):
+    admin_key: str = Field(min_length=1)
 
 
 @app.post("/auth/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
@@ -1663,6 +1669,15 @@ async def auth_login(req: LoginRequest):
     return AuthResponse(token=token, username=req.username)
 
 
+@app.post("/auth/admin", response_model=AuthResponse)
+async def auth_admin(req: AdminLoginRequest):
+    """Login as admin using the API_AUTH_KEY."""
+    api_key = _configured_api_key()
+    if not api_key or not hmac.compare_digest(req.admin_key, api_key):
+        raise HTTPException(status_code=401, detail="Invalid admin key")
+    return AuthResponse(token=api_key, username="Admin", is_admin=True)
+
+
 # ============================================================================
 # Session routes
 # ============================================================================
@@ -1682,6 +1697,7 @@ async def create_session(request: CreateSessionRequest, http_request: Request):
         created_at=session.created_at,
         updated_at=session.updated_at,
         last_attempt_id=session.last_attempt_id,
+        user_id=session.user_id or "",
     )
 
 
@@ -1723,6 +1739,7 @@ async def get_session(session_id: str):
         created_at=session.created_at,
         updated_at=session.updated_at,
         last_attempt_id=session.last_attempt_id,
+        user_id=session.user_id or "",
     )
 
 
