@@ -279,6 +279,13 @@ def fetch_quote(symbol: str) -> MonitorQuote:
                     prices = re.findall(r'(?:USD|HKD|CNY|HK\$|¥|\$)\s*(\d+\.?\d*)', body)
                     if not prices:
                         prices = re.findall(r'(\d+\.?\d*)\s*(?:USD|HKD|CNY|港元|美元|人民币)', body)
+                    if not prices:
+                        # "price: 465.60" or "股价 465.60"
+                        prices = re.findall(r'(?:price|股价|报价|最新价|现价)[\s:：]*(\d{2,}\.?\d*)', body, re.IGNORECASE)
+                    if not prices:
+                        # Generic: numbers > 10 that look like stock prices
+                        all_nums = re.findall(r'(\d{2,}\.?\d{0,2})', body)
+                        prices = [n for n in all_nums if 10 < float(n) < 100000]
                     if prices:
                         quote.price = float(prices[0])
                         break
