@@ -40,6 +40,7 @@ for _s in ("stdout", "stderr"):
 
 RUNS_DIR = Path(__file__).resolve().parent / "runs"
 SESSIONS_DIR = Path(__file__).resolve().parent / "sessions"
+DATA_DIR = Path(__file__).resolve().parent / "data"
 UPLOADS_DIR = Path(__file__).resolve().parent / "uploads"
 AGENT_DIR = Path(__file__).resolve().parent
 ENV_PATH = AGENT_DIR / ".env"
