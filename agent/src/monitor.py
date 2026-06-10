@@ -176,33 +176,66 @@ def fetch_quote(symbol: str) -> MonitorQuote:
                     if len(closes) >= 2:
                         quote.change_pct = round((closes[-1] / closes[-2] - 1) * 100, 2)
         except Exception as e:
-            quote.error = f"数据获取失败: {str(e)[:150]}"
-            return quote
+            logger.debug("akshare fetch failed for %s: %s", symbol, e)
 
-    # Fallback: ddgs web search for price
+    # Fallback 2: direct Yahoo Finance API call
+    if not closes:
+        try:
+            import requests as req
+            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=3mo"
+            resp = req.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+            if resp.status_code == 200:
+                data = resp.json()
+                result = data.get("chart", {}).get("result", [])
+                if result:
+                    meta = result[0].get("meta", {})
+                    indicators = result[0].get("indicators", {})
+                    quote_data = indicators.get("quote", [{}])[0]
+                    quote.name = str(meta.get("shortName") or meta.get("symbol") or "")
+                    quote.price = float(meta.get("regularMarketPrice", 0))
+                    quote.high_52w = float(meta.get("fiftyTwoWeekHigh", 0))
+                    quote.low_52w = float(meta.get("fiftyTwoWeekLow", 0))
+                    opens = quote_data.get("open", []) or []
+                    highs = quote_data.get("high", []) or []
+                    lows = quote_data.get("low", []) or []
+                    vols = quote_data.get("volume", []) or []
+                    quote.volume = float(vols[-1]) if vols and vols[-1] else 0
+                    # Use close prices from indicators for closes list
+                    adjclose = indicators.get("adjclose", [{}])[0].get("adjclose", []) or []
+                    if adjclose:
+                        closes = [float(v) for v in adjclose if v is not None]
+                    else:
+                        closes = [float(v) for v in quote_data.get("close", []) if v is not None]
+                    if quote.price == 0 and closes:
+                        quote.price = round(float(closes[-1]), 2)
+                    if quote.change_pct == 0 and len(closes) >= 2:
+                        quote.change_pct = round((closes[-1] / closes[-2] - 1) * 100, 2)
+        except Exception as e:
+            logger.debug("direct yahoo api failed for %s: %s", symbol, e)
+
+    # Fallback 3: ddgs web search
     if not closes:
         try:
             from ddgs import DDGS
+            import re
             with DDGS() as ddg:
                 results = list(ddg.text(f"{symbol} stock price today", max_results=3))
                 for r in results:
-                    quote.name = r.get("title", "")[:100]
-                    body = r.get("body", "")
-                    if "$" in body or "¥" in body or "HK$" in body:
-                        import re
-                        prices = re.findall(r'[\$¥HK\$\s]*(\d+\.?\d*)', body)
-                        if prices:
-                            quote.price = float(prices[0])
-                            quote.change_pct = 0
+                    body = r.get("body", "") + " " + r.get("title", "")
+                    prices = re.findall(r'(?:USD|HKD|CNY|HK\$|¥|\$)\s*(\d+\.?\d*)', body)
+                    if not prices:
+                        prices = re.findall(r'(\d+\.?\d*)\s*(?:USD|HKD|CNY|港元|美元|人民币)', body)
+                    if prices:
+                        quote.price = float(prices[0])
                         break
             if quote.price > 0:
-                quote.error = "仅获取到价格（来自搜索引擎）"
+                quote.error = "仅获取到价格（搜索结果）"
                 return quote
         except Exception:
             pass
 
     if not closes:
-        quote.error = "无法获取数据，请稍后重试。yfinance 和 akshare 均不可用。"
+        quote.error = "无法获取数据：yfinance/akshare/网页搜索均不可用，请稍后重试"
         return quote
 
     quote.signals = _detect_signals(closes, quote.price)
