@@ -178,42 +178,96 @@ def fetch_quote(symbol: str) -> MonitorQuote:
         except Exception as e:
             logger.debug("akshare fetch failed for %s: %s", symbol, e)
 
-    # Fallback 2: direct Yahoo Finance API call
+    # Fallback 2: direct Yahoo Finance API call (try multiple symbol formats)
     if not closes:
         try:
             import requests as req
-            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=3mo"
-            resp = req.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
-            if resp.status_code == 200:
-                data = resp.json()
-                result = data.get("chart", {}).get("result", [])
-                if result:
-                    meta = result[0].get("meta", {})
-                    indicators = result[0].get("indicators", {})
-                    quote_data = indicators.get("quote", [{}])[0]
-                    quote.name = str(meta.get("shortName") or meta.get("symbol") or "")
-                    quote.price = float(meta.get("regularMarketPrice", 0))
-                    quote.high_52w = float(meta.get("fiftyTwoWeekHigh", 0))
-                    quote.low_52w = float(meta.get("fiftyTwoWeekLow", 0))
-                    opens = quote_data.get("open", []) or []
-                    highs = quote_data.get("high", []) or []
-                    lows = quote_data.get("low", []) or []
-                    vols = quote_data.get("volume", []) or []
-                    quote.volume = float(vols[-1]) if vols and vols[-1] else 0
-                    # Use close prices from indicators for closes list
-                    adjclose = indicators.get("adjclose", [{}])[0].get("adjclose", []) or []
-                    if adjclose:
-                        closes = [float(v) for v in adjclose if v is not None]
-                    else:
-                        closes = [float(v) for v in quote_data.get("close", []) if v is not None]
-                    if quote.price == 0 and closes:
-                        quote.price = round(float(closes[-1]), 2)
-                    if quote.change_pct == 0 and len(closes) >= 2:
-                        quote.change_pct = round((closes[-1] / closes[-2] - 1) * 100, 2)
+            # Try original symbol and cleaned variants
+            symbols_to_try = [symbol]
+            if symbol.endswith(".HK"):
+                # Yahoo sometimes needs 4-digit HK codes
+                code = symbol.replace(".HK", "")
+                symbols_to_try.append(f"{int(code):04d}.HK")
+            for sym in set(symbols_to_try):
+                try:
+                    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}?interval=1d&range=3mo"
+                    resp = req.get(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}, timeout=15)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        result = data.get("chart", {}).get("result", [])
+                        if result:
+                            meta = result[0].get("meta", {})
+                            indicators = result[0].get("indicators", {})
+                            quote_data = indicators.get("quote", [{}])[0]
+                            quote.name = str(meta.get("shortName") or meta.get("symbol") or "")
+                            quote.price = float(meta.get("regularMarketPrice", 0))
+                            quote.high_52w = float(meta.get("fiftyTwoWeekHigh", 0))
+                            quote.low_52w = float(meta.get("fiftyTwoWeekLow", 0))
+                            quote.volume = float(quote_data.get("volume", [0])[-1] or 0)
+                            adjclose = indicators.get("adjclose", [{}])[0].get("adjclose", []) or []
+                            if adjclose:
+                                closes = [float(v) for v in adjclose if v is not None]
+                            else:
+                                closes = [float(v) for v in quote_data.get("close", []) if v is not None]
+                            if quote.price == 0 and closes:
+                                quote.price = round(float(closes[-1]), 2)
+                            if quote.change_pct == 0 and len(closes) >= 2:
+                                quote.change_pct = round((closes[-1] / closes[-2] - 1) * 100, 2)
+                            break
+                except Exception:
+                    continue
         except Exception as e:
             logger.debug("direct yahoo api failed for %s: %s", symbol, e)
 
-    # Fallback 3: ddgs web search
+    # Fallback 3: Sina/Eastmoney for HK/A-shares
+    if not closes and (symbol.endswith((".HK", ".SZ", ".SH"))):
+        try:
+            import requests as req
+            if symbol.endswith(".HK"):
+                code = symbol.replace(".HK", "")
+                # Sina HK
+                url = f"https://hq.sinajs.cn/list=hk{int(code):05d}"
+                resp = req.get(url, headers={"Referer": "https://finance.sina.com.cn"}, timeout=10)
+                resp.encoding = "gbk" if hasattr(resp, "encoding") else "utf-8"
+                if resp.status_code == 200:
+                    import re
+                    match = re.search(r'"(.+)"', resp.text)
+                    if match:
+                        fields = match.group(1).split(",")
+                        if len(fields) > 6:
+                            quote.name = fields[1]
+                            quote.price = float(fields[6]) if fields[6] else 0
+                            if len(fields) >= 10 and fields[8]:
+                                quote.change_pct = round((float(fields[6]) / float(fields[3]) - 1) * 100, 2)
+                            # Get history for closes
+                            try:
+                                hist_url = f"https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol=hk{int(code):05d}&scale=240&ma=no&datalen=60"
+                                hist_resp = req.get(hist_url, headers={"Referer": "https://finance.sina.com.cn"}, timeout=10)
+                                if hist_resp.status_code == 200:
+                                    hist_data = hist_resp.json()
+                                    closes = [float(d["close"]) for d in hist_data if d.get("close")]
+                            except Exception:
+                                pass
+            elif symbol.endswith((".SZ", ".SH")):
+                code = symbol.replace(".SZ", "").replace(".SH", "")
+                mkt = "sz" if symbol.endswith(".SZ") else "sh"
+                url = f"https://hq.sinajs.cn/list={mkt}{code}"
+                resp = req.get(url, headers={"Referer": "https://finance.sina.com.cn"}, timeout=10)
+                resp.encoding = "gbk" if hasattr(resp, "encoding") else "utf-8"
+                if resp.status_code == 200:
+                    import re
+                    match = re.search(r'"(.+)"', resp.text)
+                    if match:
+                        fields = match.group(1).split(",")
+                        if len(fields) > 3:
+                            quote.name = fields[0]
+                            quote.price = float(fields[3]) if fields[3] else 0
+                            if len(fields) >= 5 and fields[2]:
+                                quote.change_pct = round((float(fields[3]) / float(fields[2]) - 1) * 100, 2)
+        except Exception as e:
+            logger.debug("sina api failed for %s: %s", symbol, e)
+
+    # Fallback 4: ddgs web search
     if not closes:
         try:
             from ddgs import DDGS
