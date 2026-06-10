@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import secrets
 import uuid
 from pathlib import Path
-from typing import Optional
 
 
 def _hash_password(password: str, salt: str) -> str:
@@ -25,7 +23,7 @@ class UserStore:
         self._tokens_path = self._dir / "tokens.json"
         self._secret_path = self._dir / ".secret"
         self._users: dict[str, dict] = self._load_json(self._users_path)
-        self._tokens: dict[str, str] = self._load_json(self._tokens_path)  # token -> user_id
+        self._tokens: dict[str, str] = self._load_json(self._tokens_path)
         self._secret = self._load_or_create_secret()
 
     @property
@@ -34,13 +32,17 @@ class UserStore:
 
     # ---- Users ----
 
-    def register(self, username: str, password: str) -> tuple[str, str] | None:
-        """Register a new user. Returns (user_id, token) or None if taken."""
+    def register(self, username: str, password: str) -> tuple[str, str]:
+        """Register a new user. Returns (user_id, token). Raises on failure."""
         username = username.strip().lower()
-        if not username or len(password) < 4:
-            return None
+        if not username:
+            raise ValueError("用户名不能为空")
+        if len(username) < 2:
+            raise ValueError("用户名至少2个字符")
+        if len(password) < 4:
+            raise ValueError("密码至少4个字符")
         if username in self._users:
-            return None
+            raise ValueError("用户名已被占用")
         user_id = uuid.uuid4().hex[:16]
         salt = secrets.token_hex(8)
         self._users[username] = {
@@ -71,7 +73,6 @@ class UserStore:
         cached = self._tokens.get(token)
         if cached:
             return cached
-        # Try to decode
         try:
             payload = token.split(".")[0]
             user_id, sig = payload.split(":", 1)
@@ -84,8 +85,8 @@ class UserStore:
             pass
         return None
 
-    def user_exists(self, user_id: str) -> bool:
-        return any(u["user_id"] == user_id for u in self._users.values())
+    def user_count(self) -> int:
+        return len(self._users)
 
     # ---- Helpers ----
 

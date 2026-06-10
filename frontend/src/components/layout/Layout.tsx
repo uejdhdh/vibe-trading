@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation, useSearchParams } from "react-router-dom";
-import { Plus, Settings, Trash2, Pencil, PanelLeftClose, PanelLeftOpen, MessageSquare, LogOut } from "lucide-react";
+import { Plus, Settings, Trash2, Pencil, PanelLeftClose, PanelLeftOpen, MessageSquare, LogOut, Activity } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api, type SessionItem } from "@/lib/api";
 import { useAgentStore } from "@/stores/agent";
@@ -82,7 +82,7 @@ export function Layout() {
           </Link>
         </div>
 
-        <div className="px-3 pb-3">
+        <div className="px-3 pb-1">
           <button
             onClick={newChat}
             className="flex items-center gap-2 w-full rounded-lg border border-border/60 px-3 py-2 text-sm hover:bg-muted/60 transition-colors"
@@ -90,6 +90,15 @@ export function Layout() {
             <Plus className="h-4 w-4" />
             新对话
           </button>
+        </div>
+        <div className="px-3 pb-3">
+          <Link
+            to="/monitor"
+            className="flex items-center gap-2 w-full rounded-lg px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+          >
+            <Activity className="h-4 w-4" />
+            实时监控
+          </Link>
         </div>
 
         <div className="flex-1 overflow-auto px-2 pb-2">

@@ -1652,10 +1652,10 @@ class AdminLoginRequest(BaseModel):
 async def auth_register(req: RegisterRequest):
     """Register a new user account."""
     store = _get_user_store()
-    result = store.register(req.username, req.password)
-    if not result:
-        raise HTTPException(status_code=409, detail="Username already taken or invalid")
-    _, token = result
+    try:
+        _, token = store.register(req.username, req.password)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     return AuthResponse(token=token, username=req.username)
 
 
@@ -3072,6 +3072,56 @@ async def stop_runner_endpoint(payload: LiveRunnerControlRequest):
     task.cancel()
     _emit_live_event(payload.session_id, "live.action", {"kind": "runner_stopped", "broker": broker})
     return {"broker": broker, "stopped": True, "was_running": True}
+
+
+# ============================================================================
+# Monitor — Real-time stock quotes with technical signals
+# ============================================================================
+
+from src.monitor import fetch_quote, fetch_quotes
+
+
+class MonitorRequest(BaseModel):
+    symbols: list[str] = Field(min_length=1, max_length=20)
+
+
+@app.get("/monitor/{symbol}", dependencies=[Depends(require_auth)])
+async def monitor_single(symbol: str):
+    """Get a single stock quote with technical signals."""
+    quote = fetch_quote(symbol)
+    return {
+        "symbol": quote.symbol,
+        "name": quote.name,
+        "price": quote.price,
+        "change_pct": quote.change_pct,
+        "high_52w": quote.high_52w,
+        "low_52w": quote.low_52w,
+        "volume": quote.volume,
+        "signals": quote.signals,
+        "indicators": quote.indicators,
+        "error": quote.error,
+    }
+
+
+@app.post("/monitor", dependencies=[Depends(require_auth)])
+async def monitor_batch(req: MonitorRequest):
+    """Get quotes for multiple symbols."""
+    quotes = fetch_quotes(req.symbols)
+    return [
+        {
+            "symbol": q.symbol,
+            "name": q.name,
+            "price": q.price,
+            "change_pct": q.change_pct,
+            "high_52w": q.high_52w,
+            "low_52w": q.low_52w,
+            "volume": q.volume,
+            "signals": q.signals,
+            "indicators": q.indicators,
+            "error": q.error,
+        }
+        for q in quotes
+    ]
 
 
 # ============================================================================
