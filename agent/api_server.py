@@ -29,6 +29,7 @@ from rich.console import Console
 
 from src.goal.context import default_goal_criteria
 from src.ui_services import build_run_analysis, load_run_context
+from src.session.user_store import UserStore
 
 # UTF-8 on Windows
 import sys as _sys
@@ -663,8 +664,15 @@ def _validate_api_auth(
         )
 
     token = _auth_credential_from_header_or_query(cred, query_api_key, allow_query=allow_query)
-    if not token or not hmac.compare_digest(token, api_key):
+    if not token:
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
+    # Accept API_AUTH_KEY or a valid user token
+    if hmac.compare_digest(token, api_key):
+        return
+    store = _get_user_store()
+    if store.user_id_from_token(token):
+        return
+    raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 
 def _is_local_client(request: Request) -> bool:
@@ -1540,6 +1548,28 @@ async def api_info():
 
 _session_service = None
 _goal_store = None
+_user_store = None
+
+
+def _get_user_store() -> UserStore:
+    global _user_store
+    if _user_store is None:
+        _user_store = UserStore(base_dir=DATA_DIR / "users")
+    return _user_store
+
+
+def _get_user_id_from_request(request: Request) -> str:
+    """Extract user_id from Bearer token, falling back to API_AUTH_KEY."""
+    cred = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+    if not cred:
+        return ""
+    # If it matches API_AUTH_KEY, it's the site owner (no user isolation)
+    api_key = _configured_api_key()
+    if api_key and hmac.compare_digest(cred, api_key):
+        return ""
+    # Try user token
+    store = _get_user_store()
+    return store.user_id_from_token(cred) or ""
 
 
 def _get_session_service():
@@ -1593,13 +1623,58 @@ def _get_existing_session_or_404(session_id: str):
     return svc, session
 
 
+# ============================================================================
+# Auth — User registration & login
+# ============================================================================
+
+class RegisterRequest(BaseModel):
+    username: str = Field(min_length=2, max_length=30)
+    password: str = Field(min_length=4, max_length=100)
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class AuthResponse(BaseModel):
+    token: str
+    username: str
+
+
+@app.post("/auth/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
+async def auth_register(req: RegisterRequest):
+    """Register a new user account."""
+    store = _get_user_store()
+    result = store.register(req.username, req.password)
+    if not result:
+        raise HTTPException(status_code=409, detail="Username already taken or invalid")
+    _, token = result
+    return AuthResponse(token=token, username=req.username)
+
+
+@app.post("/auth/login", response_model=AuthResponse)
+async def auth_login(req: LoginRequest):
+    """Login and get a user token."""
+    store = _get_user_store()
+    token = store.login(req.username, req.password)
+    if not token:
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+    return AuthResponse(token=token, username=req.username)
+
+
+# ============================================================================
+# Session routes
+# ============================================================================
+
 @app.post("/sessions", response_model=SessionResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_auth)])
-async def create_session(request: CreateSessionRequest):
+async def create_session(request: CreateSessionRequest, http_request: Request):
     """Create a chat session."""
     svc = _get_session_service()
     if not svc:
         raise HTTPException(status_code=501, detail="Session runtime not enabled")
-    session = svc.create_session(title=request.title, config=request.config)
+    user_id = _get_user_id_from_request(http_request)
+    session = svc.create_session(title=request.title, config=request.config, user_id=user_id)
     return SessionResponse(
         session_id=session.session_id,
         title=session.title,
@@ -1611,12 +1686,13 @@ async def create_session(request: CreateSessionRequest):
 
 
 @app.get("/sessions", response_model=List[SessionResponse], dependencies=[Depends(require_auth)])
-async def list_sessions(limit: int = Query(50, ge=1, le=200)):
-    """List sessions."""
+async def list_sessions(request: Request, limit: int = Query(50, ge=1, le=200)):
+    """List sessions for the current user."""
     svc = _get_session_service()
     if not svc:
         raise HTTPException(status_code=501, detail="Session runtime not enabled")
-    sessions = svc.list_sessions(limit=limit)
+    user_id = _get_user_id_from_request(request)
+    sessions = svc.list_sessions(limit=limit, user_id=user_id)
     return [
         SessionResponse(
             session_id=s.session_id,

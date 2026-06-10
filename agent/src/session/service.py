@@ -53,17 +53,18 @@ class SessionService:
         self._active_loops: Dict[str, "AgentLoop"] = {}
         self._search_index = get_shared_index()
 
-    def create_session(self, title: str = "", config: Optional[Dict[str, Any]] = None) -> Session:
+    def create_session(self, title: str = "", config: Optional[Dict[str, Any]] = None, user_id: str = "") -> Session:
         """Create a new session.
 
         Args:
             title: Session title.
             config: Session configuration.
+            user_id: Optional owner user ID.
 
         Returns:
             The newly created Session.
         """
-        session = Session(title=title, config=config or {})
+        session = Session(title=title, config=config or {}, user_id=user_id)
         self.store.create_session(session)
         self._search_index.index_session(session.session_id, title)
         self.event_bus.emit(session.session_id, "session.created", {"session_id": session.session_id, "title": title})
@@ -73,9 +74,9 @@ class SessionService:
         """Return a session by ID."""
         return self.store.get_session(session_id)
 
-    def list_sessions(self, limit: int = 50) -> list[Session]:
-        """List all sessions."""
-        return self.store.list_sessions(limit)
+    def list_sessions(self, limit: int = 50, user_id: str = "") -> list[Session]:
+        """List sessions, optionally filtered by user."""
+        return self.store.list_sessions(limit, user_id=user_id)
 
     def delete_session(self, session_id: str) -> bool:
         """Delete a session."""

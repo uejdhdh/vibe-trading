@@ -1,4 +1,17 @@
-import { authHeaders, withAuthQuery } from "@/lib/apiAuth";
+import { authHeaders as apiAuthHeaders, withAuthQuery as apiWithAuthQuery } from "@/lib/apiAuth";
+import { userAuthHeaders } from "@/lib/userAuth";
+
+function allHeaders(): Record<string, string> {
+  const ua = userAuthHeaders();
+  if (ua.Authorization) return ua;
+  return apiAuthHeaders();
+}
+
+function allQueryAuth(url: string): string {
+  const token = userAuthHeaders().Authorization;
+  if (token) return `${url}${url.includes("?") ? "&" : "?"}api_key=${encodeURIComponent(token.replace("Bearer ", ""))}`;
+  return apiWithAuthQuery(url);
+}
 
 const BASE = "";
 
@@ -33,7 +46,7 @@ async function errorFromResponse(res: Response): Promise<ApiError> {
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const { headers, ...rest } = options ?? {};
-  const mergedHeaders: Record<string, string> = { "Content-Type": "application/json", ...authHeaders() };
+  const mergedHeaders: Record<string, string> = { "Content-Type": "application/json", ...allHeaders() };
   if (headers) {
     new Headers(headers).forEach((value, key) => {
       mergedHeaders[key] = value;
@@ -59,7 +72,7 @@ export interface UploadResult {
 async function uploadFile(file: File): Promise<UploadResult> {
   const form = new FormData();
   form.append("file", file);
-  const res = await fetch(`${BASE}/upload`, { method: "POST", headers: authHeaders(), body: form });
+  const res = await fetch(`${BASE}/upload`, { method: "POST", headers: allHeaders(), body: form });
   if (!res.ok) {
     throw await errorFromResponse(res);
   }
@@ -106,7 +119,7 @@ export const api = {
       body: JSON.stringify(body),
     }),
   sseUrl: (sid: string, options?: { replay?: "active" }) => {
-    let url = withAuthQuery(`${BASE}/sessions/${sid}/events`);
+    let url = allQueryAuth(`${BASE}/sessions/${sid}/events`);
     if (options?.replay) url = appendQueryParam(url, "replay", options.replay);
     return url;
   },
@@ -120,7 +133,7 @@ export const api = {
     }),
   listSwarmRuns: () => request<SwarmRunSummary[]>("/swarm/runs"),
   getSwarmRun: (id: string) => request<Record<string, unknown>>(`/swarm/runs/${id}`),
-  swarmSseUrl: (id: string) => withAuthQuery(`${BASE}/swarm/runs/${id}/events`),
+  swarmSseUrl: (id: string) => allQueryAuth(`${BASE}/swarm/runs/${id}/events`),
   cancelSwarmRun: (id: string) =>
     request<{ status: string }>(`/swarm/runs/${id}/cancel`, { method: "POST" }),
   getLLMSettings: () => request<LLMSettings>("/settings/llm"),
@@ -154,7 +167,7 @@ export const api = {
       body: JSON.stringify(body),
     }),
   alphaBenchStreamUrl: (jobId: string) =>
-    withAuthQuery(`${BASE}/alpha/bench/${encodeURIComponent(jobId)}/stream`),
+    allQueryAuth(`${BASE}/alpha/bench/${encodeURIComponent(jobId)}/stream`),
 
   // Live trading channel — privileged surface actions (NOT agent tools).
   // commit is the ONLY action that writes a mandate; halt trips the kill switch.

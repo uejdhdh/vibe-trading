@@ -115,11 +115,12 @@ class SessionStore:
         shutil.rmtree(session_dir, ignore_errors=True)
         return True
 
-    def list_sessions(self, limit: int = 50) -> List[Session]:
+    def list_sessions(self, limit: int = 50, user_id: str = "") -> List[Session]:
         """List all sessions in descending update-time order.
 
         Args:
             limit: Maximum number of sessions to return.
+            user_id: If set, only return sessions owned by this user.
 
         Returns:
             List of Session objects.
@@ -133,7 +134,10 @@ class SessionStore:
             session_file = session_dir / "session.json"
             data = self._read_json(session_file)
             if data:
-                sessions.append(Session.from_dict(data))
+                session = Session.from_dict(data)
+                if user_id and session.user_id and session.user_id != user_id:
+                    continue
+                sessions.append(session)
         sessions.sort(key=lambda s: s.updated_at, reverse=True)
         return sessions[:limit]
 

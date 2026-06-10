@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation, useSearchParams } from "react-router-dom";
-import { Plus, Settings, Trash2, Pencil, PanelLeftClose, PanelLeftOpen, MessageSquare } from "lucide-react";
+import { Plus, Settings, Trash2, Pencil, PanelLeftClose, PanelLeftOpen, MessageSquare, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api, type SessionItem } from "@/lib/api";
 import { useAgentStore } from "@/stores/agent";
 import { ConnectionBanner } from "@/components/layout/ConnectionBanner";
+import { getUsername, clearUserAuth } from "@/lib/userAuth";
 
 export function Layout() {
   const { pathname } = useLocation();
@@ -153,7 +154,21 @@ export function Layout() {
           )}
         </div>
 
-        <div className="border-t border-border/40 p-3">
+        <div className="border-t border-border/40 p-3 space-y-1">
+          {/* Current user */}
+          <div className="flex items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground">
+            <div className="h-5 w-5 rounded-full bg-orange-500/20 text-orange-500 flex items-center justify-center text-[10px] font-bold">
+              {getUsername().charAt(0).toUpperCase()}
+            </div>
+            <span className="flex-1 truncate">{getUsername()}</span>
+            <button
+              onClick={() => { clearUserAuth(); window.location.reload(); }}
+              className="p-1 hover:text-red-500 rounded transition-colors"
+              title="退出登录"
+            >
+              <LogOut className="h-3 w-3" />
+            </button>
+          </div>
           <Link
             to={settingsUrl}
             className="flex items-center gap-2 w-full rounded-lg px-3 py-2 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"

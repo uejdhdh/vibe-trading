@@ -43,6 +43,7 @@ class Session:
     """
 
     session_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
+    user_id: str = ""
     title: str = ""
     status: SessionStatus = SessionStatus.ACTIVE
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
