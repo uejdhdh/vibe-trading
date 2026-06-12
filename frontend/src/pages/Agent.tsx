@@ -259,6 +259,19 @@ export function Agent() {
 
   const groups = useMemo(() => groupMessages(messages), [messages]);
 
+  /* Safety timeout: if streaming but no SSE event for 180s, reset to idle */
+  useEffect(() => {
+    if (status !== "streaming") return;
+    const timer = setInterval(() => {
+      if (lastEventRef.current && Date.now() - lastEventRef.current > 180_000 && act().status === "streaming") {
+        act().setStatus("idle");
+        useAgentStore.setState({ toolCalls: [] });
+        toast.error("请求超时，请简化问题后重试");
+      }
+    }, 15_000);
+    return () => clearInterval(timer);
+  }, [status]);
+
   return (
     <div className="flex flex-col flex-1 min-w-0 overflow-hidden h-full">
       {/* Message list */}

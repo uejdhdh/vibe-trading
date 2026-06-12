@@ -23,6 +23,7 @@ export function Layout() {
   const activeId = searchParams.get("session");
 
   const load = () => {
+    setLoading(true);
     api.listSessions()
       .then((list) => setSessions(Array.isArray(list) ? list : []))
       .catch(() => {})
@@ -33,7 +34,15 @@ export function Layout() {
     localStorage.setItem("ot-sidebar", collapsed ? "collapsed" : "expanded");
   }, [collapsed]);
 
-  useEffect(() => { load(); }, [pathname, activeId]);
+  // Load sessions on mount and when activeId changes
+  useEffect(() => { load(); }, [activeId]);
+
+  // Also reload whenever window gains focus (user might have used another device)
+  useEffect(() => {
+    const onFocus = () => load();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, []);
 
   const newChat = () => {
     setSearchParams({}, { replace: true });
