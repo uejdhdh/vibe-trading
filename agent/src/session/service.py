@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 # Dedicated thread pool limited to four concurrent agents to avoid exhausting the default executor.
-_AGENT_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="agent")
+_AGENT_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="agent")
 
 from src.session.events import EventBus
 from src.session.models import (

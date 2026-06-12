@@ -210,7 +210,7 @@ class EventBus:
 
             while True:
                 try:
-                    event = await asyncio.wait_for(queue.get(), timeout=30.0)
+                    event = await asyncio.wait_for(queue.get(), timeout=15.0)
                     yield event
                 except asyncio.TimeoutError:
                     yield SSEEvent(
