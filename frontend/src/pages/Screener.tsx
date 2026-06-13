@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { Trophy, RefreshCw, Newspaper, Building2 } from "lucide-react";
+import { Trophy, RefreshCw, Newspaper } from "lucide-react";
 
 interface Pick {
   symbol: string; name: string; price: number; change_pct: number;
