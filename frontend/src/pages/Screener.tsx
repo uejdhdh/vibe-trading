@@ -33,17 +33,22 @@ export function Screener() {
   const [picks, setPicks] = useState<Pick[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [note, setNote] = useState("");
 
   const run = useCallback(async (uni: string) => {
-    setLoading(true); setError("");
+    setLoading(true); setError(""); setNote("");
     try {
       const token = localStorage.getItem("ot_user_token") || "";
-      const res = await fetch(`/screener/${uni}?top=8`, {
+      const res = await fetch(`/screener/${uni}?top=6`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (res.ok) setPicks((await res.json()).picks || []);
-      else setError("筛选失败");
-    } catch { setError("网络错误"); }
+      if (res.ok) {
+        const data = await res.json();
+        setPicks(data.picks || []);
+        if (data.weekend_note) setNote(data.weekend_note);
+      }
+      else setError("筛选失败，请稍后重试");
+    } catch { setError("网络超时，请重试"); }
     setLoading(false);
   }, []);
 
@@ -66,7 +71,10 @@ export function Screener() {
                 <Trophy className="h-5 w-5 text-orange-500" /> 每日选股
                 <span className="text-xs font-normal text-neutral-500 ml-1">全市场筛选</span>
               </h2>
-              <p className="text-[10px] text-muted-foreground mt-0.5">全市场初筛 → 动量+技术排序 → Top15新闻+行业深度分析 → 最终排行</p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">
+                动量+T突破排序 → Top10新闻+行业分析
+                {note && <span className="text-amber-400 ml-2">📌 {note}</span>}
+              </p>
             </div>
             <button onClick={() => run(universe)} disabled={loading}
               className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs hover:bg-muted transition-colors">

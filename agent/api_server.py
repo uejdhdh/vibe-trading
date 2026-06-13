@@ -3160,11 +3160,12 @@ async def screener(universe: str, top: int = Query(6, ge=5, le=10)):
     if universe not in ("hk", "csi300", "港股", "a股"):
         raise HTTPException(status_code=400, detail=f"Unknown universe: {universe}. Try: hk, csi300")
     universe_key = "hk" if universe in ("hk", "港股") else "csi300"
-    results = screen(universe_key, max_stocks=60, top_n=top)
+    results = screen(universe_key, top_n=top)
+    is_weekend = datetime.now().weekday() >= 5
     return {
         "universe": universe_key,
         "updated_at": datetime.now().isoformat(),
-        "total_screened": len(results),
+        "weekend_note": "基于周五收盘数据" if is_weekend else "",
         "picks": [
             {
                 "symbol": s.symbol,
