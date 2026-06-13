@@ -7,25 +7,24 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logger = logging.getLogger(__name__)
 
-# Momentum-first: prioritize stocks likely to rise quickly
-WEIGHTS = {"momentum": 0.30, "technical": 0.25, "volume": 0.15, "trend": 0.15, "catalyst": 0.10, "value": 0.05}
+# Momentum-first + news/industry catalysts
+WEIGHTS = {"momentum": 0.25, "technical": 0.20, "volume": 0.10, "trend": 0.10,
+           "catalyst": 0.10, "industry": 0.10, "news_sentiment": 0.10, "value": 0.05}
 
 INDUSTRY_MAP: dict[str, str] = {}
 
 
 @dataclass
 class FactorScores:
-    momentum: float = 5.0   # multi-timeframe returns
-    technical: float = 5.0  # MA/RSI/MACD breakout
-    volume: float = 5.0     # volume surge
-    trend: float = 5.0      # consecutive up days, trend strength
-    catalyst: float = 5.0   # news/events
-    value: float = 5.0      # valuation safety net
+    momentum: float = 5.0; technical: float = 5.0; volume: float = 5.0
+    trend: float = 5.0; catalyst: float = 5.0; industry: float = 5.0
+    news_sentiment: float = 5.0; value: float = 5.0
 
     @property
     def total(self) -> float:
-        return (self.momentum * 0.30 + self.technical * 0.25 + self.volume * 0.15
-                + self.trend * 0.15 + self.catalyst * 0.10 + self.value * 0.05) * 10
+        return (self.momentum * 0.25 + self.technical * 0.20 + self.volume * 0.10
+                + self.trend * 0.10 + self.catalyst * 0.10 + self.industry * 0.10
+                + self.news_sentiment * 0.10 + self.value * 0.05) * 10
 
 
 @dataclass
@@ -272,15 +271,105 @@ def _score(stock: dict, closes: list[float]) -> StockScore:
     if s.factors.technical >= 7: s.signals.append("技术突破")
     if s.factors.volume >= 7: s.signals.append("放量")
     if s.factors.trend >= 8: s.signals.append("连续上涨")
+    if s.factors.news_sentiment >= 7: s.signals.append("利好催化")
+    if s.factors.industry >= 7: s.signals.append("行业领先")
     if chg > 5: s.signals.append(f"今日+{chg:.1f}%")
 
     return s
 
 
+# ── News & Industry enrichment (runs on top candidates only) ──────────
+
+_INDUSTRY_KEYWORDS = {
+    "银行": ["银行", "工行", "建行", "招行", "农行", "中行", "交行"],
+    "保险": ["保险", "人寿", "平安", "太保"],
+    "券商": ["证券", "券商", "中信", "华泰"],
+    "互联网": ["腾讯", "阿里", "美团", "京东", "网易", "百度", "快手", "B站"],
+    "白酒": ["茅台", "五粮液", "泸州老窖", "汾酒", "洋河"],
+    "医药": ["医药", "药明", "百济", "恒瑞", "生物", "医疗"],
+    "新能源": ["新能源", "宁德", "比亚迪", "光伏", "锂电", "储能"],
+    "半导体": ["半导体", "芯片", "中芯", "华虹", "韦尔"],
+    "消费电子": ["小米", "电子", "立讯", "歌尔"],
+    "汽车": ["汽车", "长城", "吉利", "理想", "小鹏", "蔚来"],
+    "地产": ["地产", "万科", "碧桂园", "龙湖", "华润"],
+    "电力": ["电力", "华能", "国电", "长江电力", "核电"],
+    "通信": ["通信", "中兴", "烽火", "光纤", "5G"],
+    "食品": ["食品", "伊利", "蒙牛", "海天", "双汇"],
+    "石油": ["石油", "中石油", "中石化", "中海油"],
+}
+
+def _detect_industry(name: str) -> str:
+    for ind, keywords in _INDUSTRY_KEYWORDS.items():
+        for kw in keywords:
+            if kw in name:
+                return ind
+    return ""
+
+def _calc_industry_scores(scores: list[StockScore]) -> None:
+    """Score each stock on its industry's average momentum."""
+    if len(scores) < 2: return
+    # Detect industries
+    for s in scores:
+        if not s.name: continue
+        ind = _detect_industry(s.name)
+        if ind:
+            s.industry = ind
+
+    # Calculate industry avg momentum
+    ind_returns: dict[str, list[float]] = {}
+    for s in scores:
+        if s.industry and s.factors.momentum > 0:
+            ind_returns.setdefault(s.industry, []).append(s.factors.momentum)
+
+    if not ind_returns: return
+
+    all_avg = sum(sum(v) / len(v) for v in ind_returns.values()) / len(ind_returns) if ind_returns else 5
+
+    for s in scores:
+        if s.industry and s.industry in ind_returns:
+            ind_avg = sum(ind_returns[s.industry]) / len(ind_returns[s.industry])
+            # How much better is this industry vs average
+            diff = ind_avg - all_avg
+            s.factors.industry = max(0, min(10, 5 + diff * 1.5))
+        else:
+            s.factors.industry = 5.0
+
+def _fetch_news_sentiment(scores: list[StockScore]) -> None:
+    """Fetch news sentiment for top candidates (parallel, limited)."""
+    def _sentiment_one(s: StockScore) -> tuple[float, str]:
+        try:
+            from ddgs import DDGS
+            query = f"{s.symbol} {s.name} 股票 利好 利空 最新"
+            with DDGS() as ddg:
+                results = list(ddg.text(query, max_results=4))
+            bullish = bearish = total = 0
+            for r in results:
+                text = f"{r.get('title','')} {r.get('body','')}"
+                if any(kw in text for kw in ["涨", "利好", "增长", "突破", "买入", "盈利", "大涨", "飙升", "新高", "回购", "surge", "rally", "beat", "upgrade"]):
+                    bullish += 1
+                if any(kw in text for kw in ["跌", "利空", "下滑", "亏损", "卖出", "大跌", "暴跌", "风险", "减持", "plunge", "drop", "downgrade"]):
+                    bearish += 1
+                total += 1
+            if total == 0: return 5.0, "无相关新闻"
+            ratio = bullish / total
+            return round(2.0 + ratio * 8.0, 1), f"{bullish}利好/{bearish}利空"
+        except Exception:
+            return 5.0, ""
+
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        futures = {pool.submit(_sentiment_one, s): s for s in scores}
+        for fut in as_completed(futures, timeout=20):
+            s = futures[fut]
+            try:
+                s.factors.news_sentiment, _ = fut.result(timeout=12)
+            except Exception:
+                s.factors.news_sentiment = 5.0
+
+
 # ── Main API ──────────────────────────────────────────────────────────
 
 def screen(universe: str, max_stocks: int = 60, top_n: int = 6) -> list[StockScore]:
-    """Full market screening: universe → fundamentals filter → technical score → rank."""
+    """Full market screening: fundamentals filter → fast score → enrich top → final rank."""
     # 1. Fetch universe
     if universe in ("hk", "港股"):
         pool_raw = _fetch_hk_universe()
@@ -292,11 +381,11 @@ def screen(universe: str, max_stocks: int = 60, top_n: int = 6) -> list[StockSco
 
     logger.info("Screener: %d stocks passed fundamental filter for %s", len(pool_raw), universe)
 
-    # 2. Sort by PE*PB (rough value ranking) and take top N for technical analysis
-    pool_raw.sort(key=lambda x: abs(x["pe"] * x.get("pb", 1)) if x["pe"] > 0 else 999)
+    # 2. Sort by momentum proxy (change_pct) and take top N
+    pool_raw.sort(key=lambda x: x.get("change_pct", 0), reverse=True)
     candidates = pool_raw[:max_stocks]
 
-    # 3. Get history + score in parallel
+    # 3. Fast technical scoring (no I/O) — get all scored
     scores: list[StockScore] = []
     with ThreadPoolExecutor(max_workers=4) as pool:
         def process(stock):
@@ -312,9 +401,23 @@ def screen(universe: str, max_stocks: int = 60, top_n: int = 6) -> list[StockSco
             except Exception:
                 pass
 
-    # 4. Rank and return top
+    if not scores:
+        return []
+
+    # 4. Sort by fast score, take top 15 for enrichment (news + industry)
     scores.sort(key=lambda x: x.total_score, reverse=True)
-    return scores[:top_n]
+    enrich_candidates = scores[:15]
+
+    # 5. Enrich: industry trend + news sentiment
+    _calc_industry_scores(enrich_candidates)
+    _fetch_news_sentiment(enrich_candidates)
+
+    # 6. Recalculate total scores with all factors
+    for s in enrich_candidates:
+        s.total_score = round(s.factors.total, 1)
+
+    enrich_candidates.sort(key=lambda x: x.total_score, reverse=True)
+    return enrich_candidates[:top_n]
 
 
 def get_universe(name: str) -> str:

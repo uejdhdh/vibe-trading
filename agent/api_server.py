@@ -3182,6 +3182,8 @@ async def screener(universe: str, top: int = Query(6, ge=5, le=10)):
                     "volume": round(s.factors.volume, 1),
                     "trend": round(s.factors.trend, 1),
                     "catalyst": round(s.factors.catalyst, 1),
+                    "industry": round(s.factors.industry, 1),
+                    "news_sentiment": round(s.factors.news_sentiment, 1),
                     "value": round(s.factors.value, 1),
                 },
                 "signals": s.signals,

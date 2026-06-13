@@ -13,12 +13,14 @@ interface Pick {
 }
 
 const FACTORS = [
-  { key: "momentum", label: "动量", desc: "短期收益率+加速度" },
-  { key: "technical", label: "突破", desc: "均线/RSI/MACD突破" },
+  { key: "momentum", label: "动量", desc: "短期收益+加速度" },
+  { key: "technical", label: "突破", desc: "均线/RSI/MACD" },
+  { key: "news_sentiment", label: "消息", desc: "实时新闻情感" },
+  { key: "industry", label: "行业", desc: "板块相对强度" },
+  { key: "trend", label: "趋势", desc: "连阳+跳空缺口" },
+  { key: "catalyst", label: "催化", desc: "低PE+异动" },
   { key: "volume", label: "放量", desc: "量能活跃度" },
-  { key: "trend", label: "趋势", desc: "连阳天数+跳空缺口" },
-  { key: "catalyst", label: "催化", desc: "低PE+异动催化剂" },
-  { key: "value", label: "估值", desc: "PE/PB安全边际" },
+  { key: "value", label: "估值", desc: "PE/PB边际" },
 ] as const;
 
 const UNIVERSES = [
@@ -64,7 +66,7 @@ export function Screener() {
                 <Trophy className="h-5 w-5 text-orange-500" /> 每日选股
                 <span className="text-xs font-normal text-neutral-500 ml-1">全市场筛选</span>
               </h2>
-              <p className="text-[10px] text-muted-foreground mt-0.5">全市场基本面初筛 → 技术分析精排 → 七因子评分</p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">全市场初筛 → 动量+技术排序 → Top15新闻+行业深度分析 → 最终排行</p>
             </div>
             <button onClick={() => run(universe)} disabled={loading}
               className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs hover:bg-muted transition-colors">
@@ -125,8 +127,8 @@ export function Screener() {
                 </div>
               </div>
 
-              {/* 7-factor bars */}
-              <div className="grid grid-cols-7 gap-1.5 px-4 pb-3">
+              {/* Factor bars */}
+              <div className="grid grid-cols-8 gap-1 px-4 pb-3">
                 {FACTORS.map((f) => {
                   const val = pick.factors[f.key as keyof typeof pick.factors];
                   return (
