@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { TrendingUp, Trophy, RefreshCw, ChevronRight } from "lucide-react";
+import { Trophy, RefreshCw, ChevronRight } from "lucide-react";
 
 interface Pick {
   symbol: string; name: string; price: number; change_pct: number;
@@ -19,8 +19,6 @@ export function Screener() {
   const [picks, setPicks] = useState<Pick[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [lastUpdate, setLastUpdate] = useState("");
-
   const run = useCallback(async (uni: string) => {
     setLoading(true);
     setError("");
@@ -32,7 +30,6 @@ export function Screener() {
       if (res.ok) {
         const data = await res.json();
         setPicks(data.picks || []);
-        setLastUpdate(data.updated_at || "");
       } else {
         setError("筛选失败");
       }
