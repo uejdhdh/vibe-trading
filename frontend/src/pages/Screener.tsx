@@ -13,7 +13,6 @@ interface Pick {
 const UNIVERSES = [
   { key: "hk", label: "港股", desc: "恒生科技+蓝筹" },
   { key: "csi300", label: "A股", desc: "沪深300大盘" },
-  { key: "us", label: "美股", desc: "科技+金融龙头" },
 ];
 
 export function Screener() {
