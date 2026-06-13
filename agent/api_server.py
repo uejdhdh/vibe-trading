@@ -3177,13 +3177,12 @@ async def screener(universe: str, top: int = Query(6, ge=5, le=10)):
                 "market_cap": s.market_cap,
                 "total_score": round(s.total_score, 1),
                 "factors": {
-                    "market": round(s.factors.market, 1),
-                    "value": round(s.factors.value, 1),
                     "momentum": round(s.factors.momentum, 1),
-                    "quality": round(s.factors.quality, 1),
-                    "information": round(s.factors.information, 1),
-                    "industry": round(s.factors.industry, 1),
                     "technical": round(s.factors.technical, 1),
+                    "volume": round(s.factors.volume, 1),
+                    "trend": round(s.factors.trend, 1),
+                    "catalyst": round(s.factors.catalyst, 1),
+                    "value": round(s.factors.value, 1),
                 },
                 "signals": s.signals,
             }

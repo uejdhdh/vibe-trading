@@ -13,13 +13,12 @@ interface Pick {
 }
 
 const FACTORS = [
-  { key: "momentum", label: "动量", desc: "1周/1月/3月收益" },
-  { key: "value", label: "价值", desc: "PE/PB估值" },
-  { key: "quality", label: "质量", desc: "ROE/波动率" },
-  { key: "technical", label: "技术", desc: "MA/RSI/MACD" },
-  { key: "market", label: "市场", desc: "涨跌幅强度" },
-  { key: "information", label: "信息", desc: "新闻情感" },
-  { key: "industry", label: "行业", desc: "行业趋势" },
+  { key: "momentum", label: "动量", desc: "短期收益率+加速度" },
+  { key: "technical", label: "突破", desc: "均线/RSI/MACD突破" },
+  { key: "volume", label: "放量", desc: "量能活跃度" },
+  { key: "trend", label: "趋势", desc: "连阳天数+跳空缺口" },
+  { key: "catalyst", label: "催化", desc: "低PE+异动催化剂" },
+  { key: "value", label: "估值", desc: "PE/PB安全边际" },
 ] as const;
 
 const UNIVERSES = [

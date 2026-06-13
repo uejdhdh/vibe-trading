@@ -7,26 +7,25 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logger = logging.getLogger(__name__)
 
-WEIGHTS = {"market": 0.10, "value": 0.15, "momentum": 0.20, "quality": 0.15, "information": 0.15, "industry": 0.10, "technical": 0.15}
+# Momentum-first: prioritize stocks likely to rise quickly
+WEIGHTS = {"momentum": 0.30, "technical": 0.25, "volume": 0.15, "trend": 0.15, "catalyst": 0.10, "value": 0.05}
 
-INDUSTRY_MAP: dict[str, str] = {
-    "银行": "银行", "保险": "保险", "券商": "券商", "互联网": "互联网", "白酒": "白酒",
-    "医药": "医药", "新能源": "新能源", "半导体": "半导体", "消费电子": "消费电子",
-    "家电": "家电", "汽车": "汽车", "地产": "地产", "电力": "电力", "通信": "通信",
-    "食品": "食品", "光伏": "光伏", "电池": "电池", "煤炭": "煤炭", "石油": "石油",
-}
+INDUSTRY_MAP: dict[str, str] = {}
 
 
 @dataclass
 class FactorScores:
-    market: float = 5.0; value: float = 5.0; momentum: float = 5.0; quality: float = 5.0
-    information: float = 5.0; industry: float = 5.0; technical: float = 5.0
+    momentum: float = 5.0   # multi-timeframe returns
+    technical: float = 5.0  # MA/RSI/MACD breakout
+    volume: float = 5.0     # volume surge
+    trend: float = 5.0      # consecutive up days, trend strength
+    catalyst: float = 5.0   # news/events
+    value: float = 5.0      # valuation safety net
 
     @property
     def total(self) -> float:
-        return (self.market * 0.10 + self.value * 0.15 + self.momentum * 0.20
-                + self.quality * 0.15 + self.information * 0.15 + self.industry * 0.10
-                + self.technical * 0.15) * 10
+        return (self.momentum * 0.30 + self.technical * 0.25 + self.volume * 0.15
+                + self.trend * 0.15 + self.catalyst * 0.10 + self.value * 0.05) * 10
 
 
 @dataclass
@@ -162,41 +161,6 @@ def _calc_returns(closes: list[float]) -> tuple[float, float, float, float, floa
     return r1w, r1m, r3m, round(max_dd * 100, 1), round(vol, 2), price, chg
 
 
-def _calc_tech(closes: list[float], price: float) -> float:
-    """Technical factor 0-10."""
-    if len(closes) < 20: return 5.0
-    s = 5.0
-    ma5 = sum(closes[-5:]) / 5; ma20 = sum(closes[-20:]) / 20
-    if price > ma5 > ma20: s += 2
-    elif price > ma20: s += 1
-    elif price < ma20: s -= 1
-
-    period = 14
-    if len(closes) >= period + 1:
-        gains = losses = 0.0
-        for i in range(-period, 0):
-            d = closes[i] - closes[i - 1]
-            if d > 0: gains += d
-            else: losses -= d
-        if losses > 0:
-            rsi = 100.0 - 100.0 / (1.0 + (gains / period) / (losses / period))
-            if 40 <= rsi <= 60: s += 1
-            elif rsi < 30: s += 2
-            elif rsi > 70: s -= 1
-
-    if len(closes) >= 26:
-        def ema(data, n):
-            k = 2 / (n + 1); out = [sum(data[:n]) / n]
-            for v in data[n:]: out.append(v * k + out[-1] * (1 - k))
-            return out
-        e12, e26 = ema(closes, 12), ema(closes, 26)
-        m = min(len(e12), len(e26))
-        dif = [e12[-m + i] - e26[-m + i] for i in range(m)]
-        dea = ema(dif, 9) if len(dif) >= 9 else dif
-        if dif[-1] > dea[-1]: s += 1
-    return max(0.0, min(10.0, s))
-
-
 # ── Step 3: Score and rank ────────────────────────────────────────────
 
 def _score(stock: dict, closes: list[float]) -> StockScore:
@@ -205,49 +169,111 @@ def _score(stock: dict, closes: list[float]) -> StockScore:
                    change_pct=chg, pe=stock.get("pe", 0), pb=stock.get("pb", 0),
                    roe=stock.get("roe", 0), market_cap=stock.get("market_cap", 0))
 
-    # Momentum (0-10)
-    composite = r1w * 0.3 + r1m * 0.4 + r3m * 0.3
-    if composite > 20: s.factors.momentum = 10
-    elif composite > 10: s.factors.momentum = 7 + (composite - 10) * 0.3
-    elif composite > 5: s.factors.momentum = 5 + (composite - 5) * 0.4
-    elif composite > 0: s.factors.momentum = 5 + composite * 0.3
-    else: s.factors.momentum = max(0, 4 + composite * 0.3)
+    # ═══ MOMENTUM (30%) — the most important factor ═══
+    # Multi-timeframe weighted return, with acceleration bonus
+    composite = r1w * 0.5 + r1m * 0.3 + r3m * 0.2  # short-term heavy
+    # Acceleration: recent week > recent month = accelerating
+    accel = r1w - r1m if r1m != 0 else 0
+    composite += max(0, accel * 0.2)
+    if composite > 15: s.factors.momentum = 10
+    elif composite > 10: s.factors.momentum = 8 + (composite - 10) * 0.4
+    elif composite > 5: s.factors.momentum = 6 + (composite - 5) * 0.4
+    elif composite > 2: s.factors.momentum = 5 + (composite - 2) * 0.5
+    elif composite > 0: s.factors.momentum = 4 + composite
+    else: s.factors.momentum = max(0, 3 + composite * 0.5)
 
-    # Value (0-10): PE + PB
+    # ═══ TECHNICAL (25%) — breakout detection ═══
+    tech = 5.0
+    if len(closes) >= 20:
+        ma5 = sum(closes[-5:]) / 5; ma10 = sum(closes[-10:]) / 10; ma20 = sum(closes[-20:]) / 20
+        # MA bullish alignment
+        if price > ma5 > ma10 > ma20: tech += 3
+        elif price > ma5 > ma20: tech += 2
+        elif price > ma20: tech += 1
+        elif price < ma20: tech -= 2
+        # Recent breakout (price > max of last 20 days)
+        recent_max = max(closes[-20:-1])
+        if price > recent_max: tech += 2  # new high!
+        # RSI
+        period = 14
+        if len(closes) >= period + 1:
+            gains = losses = 0.0
+            for i in range(-period, 0):
+                d = closes[i] - closes[i - 1]
+                if d > 0: gains += d
+                else: losses -= d
+            if losses > 0:
+                rsi = 100.0 - 100.0 / (1.0 + (gains / period) / (losses / period))
+                if 50 <= rsi <= 65: tech += 2  # strong but not overbought
+                elif 40 <= rsi < 50: tech += 1  # healthy
+                elif rsi < 30: tech += 2  # oversold bounce potential
+                elif rsi > 75: tech -= 1
+        # MACD bullish
+        if len(closes) >= 26:
+            def ema(data, n):
+                k = 2 / (n + 1); out = [sum(data[:n]) / n]
+                for v in data[n:]: out.append(v * k + out[-1] * (1 - k))
+                return out
+            e12, e26 = ema(closes, 12), ema(closes, 26)
+            m = min(len(e12), len(e26))
+            dif = [e12[-m + i] - e26[-m + i] for i in range(m)]
+            dea = ema(dif, 9) if len(dif) >= 9 else dif
+            if dif[-1] > dea[-1] and dif[-1] > 0: tech += 2
+            elif dif[-1] > dea[-1]: tech += 1
+
+    s.factors.technical = max(0, min(10, tech))
+
+    # ═══ VOLUME (15%) — volume surge = institutional interest ═══
+    vol_score = 5.0
+    # Count consecutive volume expansion days
+    if s.price > 0 and s.market_cap > 0:
+        # Use price * volume ratio as a crude turnover indicator
+        # For now: if change > 2% it implies above-average interest
+        if abs(chg) > 5: vol_score = 10
+        elif abs(chg) > 3: vol_score = 8
+        elif abs(chg) > 2: vol_score = 7
+        elif abs(chg) > 1: vol_score = 6
+    s.factors.volume = vol_score
+
+    # ═══ TREND (15%) — consecutive up days, trend strength ═══
+    trend = 5.0
+    if len(closes) >= 5:
+        up_days = sum(1 for i in range(-5, 0) if closes[i] > closes[i - 1])
+        if up_days >= 4: trend = 10
+        elif up_days >= 3: trend = 8
+        elif up_days >= 2: trend = 6
+        elif up_days >= 1: trend = 5
+        else: trend = 3
+        # Gap detection: today's low > yesterday's high = bullish gap
+        if len(closes) >= 2 and price > closes[-2] * 1.02:
+            trend = min(10, trend + 2)
+    s.factors.trend = trend
+
+    # ═══ CATALYST (10%) — PE compression + volume as proxy for news ═══
+    catalyst = 5.0
+    # Low PE + high volume surge = possible undervalued catalyst
+    if 0 < s.pe < 15 and abs(chg) > 2: catalyst = 9
+    elif 0 < s.pe < 20 and abs(chg) > 1: catalyst = 7
+    elif abs(chg) > 3: catalyst = 8  # big move = catalyst
+    s.factors.catalyst = catalyst
+
+    # ═══ VALUE (5%) — safety net, not the main driver ═══
     v = 5.0
-    if 0 < s.pe < 10: v += 3
-    elif 10 <= s.pe < 20: v += 2
-    elif 20 <= s.pe < 35: v += 1
-    if 0 < s.pb < 1: v += 2
-    elif 1 <= s.pb < 2: v += 1
+    if 0 < s.pe < 15: v += 2
+    elif 0 < s.pe < 25: v += 1
+    elif s.pe > 60: v -= 2
+    if 0 < s.pb < 1.5: v += 1
     s.factors.value = max(0, min(10, v))
 
-    # Quality (0-10)
-    q = 5.0
-    if s.roe > 20: q += 2
-    elif s.roe > 15: q += 1
-    if max_dd < 5: q += 1
-    if vol < 2: q += 2
-    elif vol < 3: q += 1
-    s.factors.quality = max(0, min(10, q))
-
-    # Technical
-    s.factors.technical = _calc_tech(closes, price)
-
-    # Market (simplified)
-    m = 5.0
-    if chg > 3: m = 8
-    elif chg > 1: m = 7
-    elif chg > 0: m = 6
-    elif chg > -2: m = 5
-    else: m = 3
-    s.factors.market = m
-
-    # Industry + Information (defaults, enriched later)
-    s.factors.industry = 5.0
-    s.factors.information = 5.0
-
     s.total_score = round(s.factors.total, 1)
+
+    # Signals
+    if s.factors.momentum >= 8: s.signals.append("强动量")
+    if s.factors.technical >= 7: s.signals.append("技术突破")
+    if s.factors.volume >= 7: s.signals.append("放量")
+    if s.factors.trend >= 8: s.signals.append("连续上涨")
+    if chg > 5: s.signals.append(f"今日+{chg:.1f}%")
+
     return s
 
 
