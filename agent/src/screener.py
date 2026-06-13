@@ -1,4 +1,4 @@
-"""Fast multi-factor screener — curated liquid universe + weekend support."""
+"""Fast multi-factor screener — THS heat rank pool + weekend support."""
 
 from __future__ import annotations
 import logging, math, os
@@ -8,27 +8,14 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logger = logging.getLogger(__name__)
 
-# ── Curated liquid universes (most tradeable, high volume) ────────────
+# ── HK stock pool (for HK screener) ───────────────────────────────────
 
 HK_STOCKS = [
     "00700.HK","09988.HK","00941.HK","00388.HK","01299.HK","00005.HK",
     "02318.HK","00939.HK","01398.HK","03988.HK","01810.HK","02628.HK",
     "06869.HK","02015.HK","01211.HK","09633.HK","02269.HK","03690.HK",
-    "09999.HK","01024.HK","09961.HK","02382.HK","01093.HK","01109.HK",
-    "00175.HK","00669.HK","00883.HK","02688.HK","00992.HK","01928.HK",
-    "00027.HK","01818.HK","01088.HK","02333.HK","00291.HK","00288.HK",
-    "06160.HK","02020.HK","09618.HK","09888.HK",
-]
-
-A_STOCKS = [
-    "600519.SH","000858.SZ","601318.SH","000333.SZ","600036.SH",
-    "601166.SH","600900.SH","601012.SH","600030.SH","000001.SZ",
-    "002415.SZ","601398.SH","600276.SH","000651.SZ","300750.SZ",
-    "603259.SH","000725.SZ","002714.SZ","601888.SH","600809.SH",
-    "000568.SZ","002475.SZ","300059.SZ","601899.SH","000063.SZ",
-    "002304.SZ","600585.SH","000895.SZ","600031.SH","000338.SZ",
-    "002594.SZ","601857.SH","600050.SH","000100.SZ","002230.SZ",
-    "600690.SH","600104.SH","000625.SZ","601088.SH","603288.SH",
+    "09999.HK","01024.HK","09961.HK","02382.HK","01093.HK","00175.HK",
+    "00883.HK","01818.HK","02333.HK","09618.HK","09888.HK","02020.HK",
 ]
 
 # ── Factor config ─────────────────────────────────────────────────────
@@ -64,6 +51,30 @@ def _tushare_date() -> str:
     if today.weekday() >= 5:  # Sat/Sun
         today = today - timedelta(days=today.weekday() - 4)  # Friday
     return today.strftime("%Y%m%d")
+
+# ── THS heat rank pool ────────────────────────────────────────────────
+
+def _fetch_ths_hot_pool(max_stocks: int = 50) -> list[str]:
+    """Fetch top N hottest A-stocks from 同花顺 heat rank."""
+    try:
+        import akshare as ak
+        df = ak.stock_hot_rank_em()
+        if df is None or df.empty:
+            return []
+        symbols = []
+        for _, row in df.iterrows():
+            code = str(row.iloc[1])  # 代码 column (SH603993 or SZ000630)
+            if code.startswith("SH"):
+                symbols.append(code[2:] + ".SH")
+            elif code.startswith("SZ"):
+                symbols.append(code[2:] + ".SZ")
+            if len(symbols) >= max_stocks:
+                break
+        return symbols
+    except Exception as e:
+        logger.warning("THS hot rank fetch failed: %s", e)
+        return []
+
 
 # ── Data fetching ─────────────────────────────────────────────────────
 
@@ -268,7 +279,16 @@ def _enrich_top(scores: list[StockScore]) -> None:
 # ── Main ──────────────────────────────────────────────────────────────
 
 def screen(universe: str, top_n: int = 6) -> list[StockScore]:
-    stocks = HK_STOCKS if universe in ("hk", "港股") else A_STOCKS
+    """Screen stocks: THS heat pool for A-shares, curated pool for HK."""
+    if universe in ("hk", "港股"):
+        stocks = HK_STOCKS
+    else:
+        # A-shares: use 同花顺 heat rank
+        hot = _fetch_ths_hot_pool(50)
+        stocks = hot if hot else []  # fallback handled below
+
+    if not stocks:
+        return []
 
     scores: list[StockScore] = []
     with ThreadPoolExecutor(max_workers=4) as pool:
@@ -288,7 +308,4 @@ def screen(universe: str, top_n: int = 6) -> list[StockScore]:
 
     scores.sort(key=lambda x: x.total_score, reverse=True)
     _enrich_top(scores)
-
-    # Weekend note
-    is_weekend = datetime.now().weekday() >= 5
     return scores[:top_n]
