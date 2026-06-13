@@ -1,7 +1,7 @@
 """Multi-factor quantitative stock screener — 7-factor model."""
 
 from __future__ import annotations
-import logging, math, re
+import logging, math, os, re
 from dataclasses import dataclass, field
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -105,6 +105,10 @@ class StockScore:
     price: float = 0.0
     change_pct: float = 0.0
     industry: str = ""
+    pe: float = 0.0
+    pb: float = 0.0
+    roe: float = 0.0
+    market_cap: float = 0.0
     total_score: float = 0.0
     factors: FactorScores = field(default_factory=FactorScores)
     news_headlines: list[str] = field(default_factory=list)
@@ -233,22 +237,28 @@ def _calc_market_factor(change_pct: float, index_change: float) -> float:
     return max(0.0, 2.0 + (alpha + 5) * 0.5)
 
 
-def _calc_value_factor(price: float, closes: list[float]) -> float:
-    """Value factor: price position in 52w range. Lower position = better value. Score 0-10."""
-    if len(closes) < 20:
-        return 5.0
-    hi = max(closes)
-    lo = min(closes)
-    if hi == lo:
-        return 5.0
-    position = (price - lo) / (hi - lo)  # 0 = at low, 1 = at high
-    # Value: lower position = cheaper = higher score
-    if position < 0.1: return 10.0
-    if position < 0.25: return 8.0 + (0.25 - position) * 13.3
-    if position < 0.4: return 6.0 + (0.4 - position) * 13.3
-    if position < 0.6: return 4.0 + (0.6 - position) * 10.0
-    if position < 0.8: return 2.0 + (0.8 - position) * 10.0
-    return max(0.0, 2.0 - (position - 0.8) * 10)
+def _calc_value_factor(price: float, closes: list[float], pe: float, pb: float) -> float:
+    """Value factor: PE/PB valuation + price position. Score 0-10."""
+    score = 5.0
+    # PE: lower is better value (0-15: excellent, 15-30: fair, 30+: expensive)
+    if 0 < pe < 10: score += 3
+    elif 10 <= pe < 20: score += 2
+    elif 20 <= pe < 30: score += 1
+    elif pe >= 50: score -= 2
+    # PB: lower is better (0-1: deep value, 1-3: fair, 3+: expensive)
+    if 0 < pb < 1: score += 2
+    elif 1 <= pb < 2: score += 1
+    elif pb >= 5: score -= 1
+    # Price position in range (cheaper end = better)
+    if len(closes) >= 20:
+        hi = max(closes)
+        lo = min(closes)
+        if hi > lo:
+            position = (price - lo) / (hi - lo)
+            if position < 0.2: score += 2
+            elif position < 0.4: score += 1
+            elif position > 0.85: score -= 1
+    return max(0.0, min(10.0, score))
 
 
 def _calc_momentum_factor(r1w: float, r1m: float, r3m: float) -> float:
@@ -264,22 +274,26 @@ def _calc_momentum_factor(r1w: float, r1m: float, r3m: float) -> float:
     return max(0.0, 2.0)
 
 
-def _calc_quality_factor(max_dd: float, vol_ratio: float, closes: list[float]) -> float:
-    """Quality factor: lower drawdown + stable volume = higher quality. Score 0-10."""
+def _calc_quality_factor(max_dd: float, vol_ratio: float, closes: list[float], roe: float) -> float:
+    """Quality factor: ROE + low drawdown + stable volume. Score 0-10."""
     score = 5.0
+    # ROE: higher = better quality
+    if roe > 20: score += 3
+    elif roe > 15: score += 2
+    elif roe > 10: score += 1
+    elif 0 < roe < 5: score -= 1
     # Max DD: lower is better
-    if max_dd < 3: score += 3
-    elif max_dd < 5: score += 2
-    elif max_dd < 10: score += 1
+    if max_dd < 3: score += 2
+    elif max_dd < 5: score += 1
     elif max_dd > 20: score -= 2
     elif max_dd > 15: score -= 1
-    # Volatility: compute std dev of daily returns
+    # Volatility
     if len(closes) >= 20:
         returns = [(closes[i] / closes[i - 1] - 1) for i in range(1, len(closes))]
         if returns:
             avg_r = sum(returns) / len(returns)
             variance = sum((r - avg_r) ** 2 for r in returns) / len(returns)
-            vol = math.sqrt(variance) * 100  # daily vol %
+            vol = math.sqrt(variance) * 100
             if vol < 1.5: score += 2
             elif vol < 2.5: score += 1
             elif vol > 4: score -= 2
@@ -395,6 +409,38 @@ def _calc_industry_factor(symbol: str, all_scores: list[dict]) -> float:
 
 # ── Main screening ────────────────────────────────────────────────────
 
+def _fetch_fundamentals(symbol: str) -> dict[str, float]:
+    """Fetch PE, PB, ROE for a stock. Uses Tushare (A-shares) or yfinance (HK)."""
+    result = {"pe": 0, "pb": 0, "roe": 0, "market_cap": 0}
+    try:
+        # A-shares: Tushare
+        if symbol.endswith((".SZ", ".SH")):
+            import tushare as ts
+            token = os.getenv("TUSHARE_TOKEN", "")
+            if token:
+                pro = ts.pro_api(token)
+                code = symbol.replace(".SZ", "").replace(".SH", "") + (".SZ" if symbol.endswith(".SZ") else ".SH")
+                df = pro.daily_basic(ts_code=code, fields="pe,pb,roe,total_mv")
+                if not df.empty:
+                    row = df.iloc[0]
+                    result["pe"] = float(row.get("pe", 0) or 0)
+                    result["pb"] = float(row.get("pb", 0) or 0)
+                    result["roe"] = float(row.get("roe", 0) or 0)
+                    result["market_cap"] = float(row.get("total_mv", 0) or 0)
+        # HK stocks: yfinance
+        elif symbol.endswith(".HK"):
+            import yfinance as yf
+            t = yf.Ticker(symbol)
+            info = t.info or {}
+            result["pe"] = float(info.get("trailingPE") or info.get("forwardPE") or 0)
+            result["pb"] = float(info.get("priceToBook") or 0)
+            result["roe"] = float(info.get("returnOnEquity") or 0) * 100 if info.get("returnOnEquity") else 0
+            result["market_cap"] = float(info.get("marketCap") or 0)
+    except Exception as e:
+        logger.debug("fundamental fetch failed for %s: %s", symbol, e)
+    return result
+
+
 def _fetch_stock_data(symbol: str) -> dict | None:
     """Fetch all needed data for a single stock."""
     try:
@@ -453,13 +499,20 @@ def screen(universe: list[str], top_n: int = 8) -> list[StockScore]:
         s.factors.market = _calc_market_factor(d["change_pct"], 0)
 
         # Value factor
-        s.factors.value = _calc_value_factor(price, closes)
+        # Fetch fundamentals
+        fund = _fetch_fundamentals(d["symbol"])
+        s.pe = fund["pe"]
+        s.pb = fund["pb"]
+        s.roe = fund["roe"]
+        s.market_cap = fund["market_cap"]
+
+        s.factors.value = _calc_value_factor(price, closes, s.pe, s.pb)
 
         # Momentum factor
         s.factors.momentum = _calc_momentum_factor(d["r1w"], d["r1m"], d["r3m"])
 
         # Quality factor
-        s.factors.quality = _calc_quality_factor(d["max_dd"], d["vol_ratio"], closes)
+        s.factors.quality = _calc_quality_factor(d["max_dd"], d["vol_ratio"], closes, s.roe)
 
         # Technical factor
         s.factors.technical = _calc_technical_factor(closes, price)

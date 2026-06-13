@@ -3,7 +3,8 @@ import { Trophy, RefreshCw } from "lucide-react";
 
 interface Pick {
   symbol: string; name: string; price: number; change_pct: number;
-  industry: string; total_score: number;
+  industry: string; pe: number; pb: number; roe: number; market_cap: number;
+  total_score: number;
   factors: {
     market: number; value: number; momentum: number;
     quality: number; information: number; industry: number; technical: number;
@@ -111,11 +112,14 @@ export function Screener() {
                       <span className="text-[10px] px-1.5 py-0.5 rounded bg-orange-500/10 text-orange-500 font-medium shrink-0">{pick.industry}</span>
                     )}
                   </div>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    <span className="font-mono text-xs">{pick.price.toFixed(2)}</span>
-                    <span className={`text-xs font-medium ${pick.change_pct >= 0 ? "text-emerald-500" : "text-red-500"}`}>
+                  <div className="flex items-center gap-3 mt-0.5 text-xs">
+                    <span className="font-mono">{pick.price.toFixed(2)}</span>
+                    <span className={`font-medium ${pick.change_pct >= 0 ? "text-emerald-500" : "text-red-500"}`}>
                       {pick.change_pct >= 0 ? "+" : ""}{pick.change_pct.toFixed(2)}%
                     </span>
+                    {pick.pe > 0 && <span className="text-muted-foreground">PE <span className="text-foreground font-medium">{pick.pe.toFixed(1)}</span></span>}
+                    {pick.pb > 0 && <span className="text-muted-foreground">PB <span className="text-foreground font-medium">{pick.pb.toFixed(1)}</span></span>}
+                    {pick.roe > 0 && <span className="text-muted-foreground">ROE <span className="text-foreground font-medium">{pick.roe.toFixed(1)}%</span></span>}
                   </div>
                 </div>
                 <div className="text-right">

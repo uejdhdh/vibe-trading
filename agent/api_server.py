@@ -3173,6 +3173,10 @@ async def screener(universe: str, top: int = Query(8, ge=5, le=12)):
                 "price": s.price,
                 "change_pct": s.change_pct,
                 "industry": s.industry,
+                "pe": round(s.pe, 1),
+                "pb": round(s.pb, 1),
+                "roe": round(s.roe, 1),
+                "market_cap": s.market_cap,
                 "total_score": round(s.total_score, 1),
                 "factors": {
                     "market": round(s.factors.market, 1),
