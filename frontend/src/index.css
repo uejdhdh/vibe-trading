@@ -4,78 +4,49 @@
 
 @layer base {
   :root {
-    /* Light mode surfaces */
-    --background: 220 20% 98%;
-    --foreground: 220 20% 10%;
-    --card: 0 0% 100%;
-    --card-foreground: 220 20% 10%;
-
-    /* Brand accent */
+    --background: 0 0% 4%;
+    --foreground: 0 0% 96%;
+    --card: 0 0% 6%;
+    --card-foreground: 0 0% 96%;
     --primary: 27 90% 52%;
     --primary-foreground: 0 0% 100%;
-
-    --muted: 220 14% 92%;
-    --muted-foreground: 220 14% 46%;
+    --muted: 0 0% 12%;
+    --muted-foreground: 0 0% 55%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
-    --border: 220 14% 87%;
-    --radius: 0.5rem;
-
-    /* Semantic colors */
+    --border: 0 0% 14%;
+    --radius: 0.75rem;
     --success: 142 71% 45%;
     --danger: 0 84% 60%;
     --warning: 38 92% 50%;
     --info: 217 91% 60%;
-
-    /* Chart tokens */
-    --chart-grid: 220 14% 90%;
-    --chart-text: 220 14% 46%;
-    --chart-axis: 220 14% 80%;
-    --chart-compare-a: #3b82f6;
-    --chart-compare-b: #f59e0b;
   }
 
-  .dark {
-    /* Dark mode: 4-level surface system */
-    --background: 220 20% 5%;       /* bg-base */
-    --foreground: 220 10% 92%;
-    --card: 220 20% 8%;             /* surface-1 */
-    --card-foreground: 220 10% 92%;
+  * { border-color: hsl(var(--border)); }
 
-    --primary: 27 90% 52%;
-    --primary-foreground: 0 0% 100%;
-
-    --muted: 220 20% 13%;           /* surface-2 */
-    --muted-foreground: 220 10% 55%;
-    --destructive: 0 62% 50%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 220 20% 18%;          /* surface-3 */
-
-    /* Semantic colors */
-    --success: 142 71% 45%;
-    --danger: 0 62% 50%;
-    --warning: 38 92% 50%;
-    --info: 217 91% 60%;
-
-    /* Chart tokens */
-    --chart-grid: 220 20% 12%;
-    --chart-text: 220 10% 42%;
-    --chart-axis: 220 20% 22%;
-    --chart-compare-a: #60a5fa;
-    --chart-compare-b: #fbbf24;
+  body {
+    background: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-feature-settings: "cv02","cv03","cv04","cv09";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
-  * { @apply border-border; }
-  body { @apply bg-background text-foreground; }
-
-  /* Prose table enhancements */
-  .prose table { border-collapse: collapse; width: 100%; }
-  .prose th, .prose td { border: 1px solid hsl(var(--border)); }
-  .prose tbody tr:nth-child(even) { background: hsl(var(--muted) / 0.3); }
-
-  /* Smooth scrollbar for webkit */
-  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  /* Custom scrollbar */
+  ::-webkit-scrollbar { width: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 3px; }
-  ::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground)); }
+  ::-webkit-scrollbar-thumb { background: hsl(0 0% 20%); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: hsl(0 0% 30%); }
+
+  /* Prevent iOS zoom on input focus */
+  @media (max-width: 768px) {
+    input, textarea, select { font-size: 16px !important; }
+  }
 }
+
+/* Prose override for chat messages */
+.prose { color: hsl(var(--foreground)); max-width: none; }
+.prose table { font-size: 0.8rem; }
+.prose th { background: hsl(var(--muted)); color: hsl(var(--muted-foreground)); }
+.prose td { border-color: hsl(var(--border)); }
+.prose code { background: hsl(var(--muted)); padding: 0.1em 0.3em; border-radius: 4px; }
