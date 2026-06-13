@@ -3170,14 +3170,14 @@ async def screener(universe: str, top: int = Query(10, ge=5, le=30)):
                 "name": s.name,
                 "price": s.price,
                 "change_pct": s.change_pct,
+                "industry": s.industry,
                 "total_score": round(s.total_score, 1),
                 "breakdown": {
-                    "trend": s.trend_score,
-                    "momentum": s.momentum_score,
-                    "volume": s.volume_score,
-                    "rsi": s.rsi_score,
-                    "macd": s.macd_score,
+                    "technical": s.tech_score,
+                    "news_sentiment": s.news_score,
+                    "industry_trend": s.industry_score,
                 },
+                "news": s.news_headlines,
                 "signals": s.signals,
             }
             for s in results
