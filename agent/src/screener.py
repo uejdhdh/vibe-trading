@@ -52,10 +52,10 @@ def _tushare_date() -> str:
         today = today - timedelta(days=today.weekday() - 4)  # Friday
     return today.strftime("%Y%m%d")
 
-# ── THS heat rank pool ────────────────────────────────────────────────
+# ── Heat rank pools ───────────────────────────────────────────────────
 
 def _fetch_ths_hot_pool(max_stocks: int = 50) -> list[str]:
-    """Fetch top N hottest A-stocks from 同花顺 heat rank."""
+    """Fetch top N hottest A-stocks from 同花顺 heat rank (东方财富)."""
     try:
         import akshare as ak
         df = ak.stock_hot_rank_em()
@@ -63,7 +63,7 @@ def _fetch_ths_hot_pool(max_stocks: int = 50) -> list[str]:
             return []
         symbols = []
         for _, row in df.iterrows():
-            code = str(row.iloc[1])  # 代码 column (SH603993 or SZ000630)
+            code = str(row.iloc[1])
             if code.startswith("SH"):
                 symbols.append(code[2:] + ".SH")
             elif code.startswith("SZ"):
@@ -74,6 +74,56 @@ def _fetch_ths_hot_pool(max_stocks: int = 50) -> list[str]:
     except Exception as e:
         logger.warning("THS hot rank fetch failed: %s", e)
         return []
+
+
+def _fetch_hk_hot_pool(max_stocks: int = 50) -> list[str]:
+    """Fetch top N hottest HK stocks from 东方财富 HK heat rank."""
+    try:
+        import akshare as ak
+        # Try hot rank first
+        df = ak.stock_hk_hot_rank_em()
+        if df is not None and not df.empty:
+            symbols = []
+            for _, row in df.iterrows():
+                code = str(row.iloc[0])  # First column should be code
+                # Normalize: might be "00700" or "700" or "HK.00700"
+                code = code.replace("HK.", "").replace("HK", "").strip()
+                if code.isdigit():
+                    code = code.zfill(5)
+                    symbols.append(f"{code}.HK")
+                if len(symbols) >= max_stocks:
+                    break
+            if symbols:
+                return symbols
+    except Exception as e:
+        logger.debug("HK hot rank failed: %s", e)
+
+    # Fallback: spot market sorted by turnover
+    try:
+        import akshare as ak
+        df = ak.stock_hk_spot_em()
+        if df is not None and not df.empty:
+            # Sort by 成交额 (turnover) descending
+            turnover_col = None
+            for col in df.columns:
+                if "成交额" in str(col) or "turnover" in str(col).lower():
+                    turnover_col = col
+                    break
+            if turnover_col:
+                df = df.sort_values(turnover_col, ascending=False)
+            symbols = []
+            for _, row in df.iterrows():
+                code = str(row.iloc[0])  # 代码
+                code = code.strip().zfill(5)
+                if code.isdigit():
+                    symbols.append(f"{code}.HK")
+                if len(symbols) >= max_stocks:
+                    break
+            return symbols
+    except Exception as e:
+        logger.debug("HK spot fallback failed: %s", e)
+
+    return []
 
 
 # ── Data fetching ─────────────────────────────────────────────────────
@@ -281,11 +331,11 @@ def _enrich_top(scores: list[StockScore]) -> None:
 def screen(universe: str, top_n: int = 6) -> list[StockScore]:
     """Screen stocks: THS heat pool for A-shares, curated pool for HK."""
     if universe in ("hk", "港股"):
-        stocks = HK_STOCKS
+        stocks = _fetch_hk_hot_pool(50)  # 东方财富 HK heat rank
+        if not stocks:
+            stocks = HK_STOCKS  # fallback to curated
     else:
-        # A-shares: use 同花顺 heat rank
-        hot = _fetch_ths_hot_pool(50)
-        stocks = hot if hot else []  # fallback handled below
+        stocks = _fetch_ths_hot_pool(50)  # 同花顺 A-share heat rank
 
     if not stocks:
         return []
