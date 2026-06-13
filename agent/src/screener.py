@@ -16,23 +16,15 @@ logger = logging.getLogger(__name__)
 HK_UNIVERSE = [
     "00700.HK", "09988.HK", "00941.HK", "00388.HK", "01299.HK",
     "00005.HK", "02318.HK", "00939.HK", "01398.HK", "03988.HK",
-    "01810.HK", "02382.HK", "02628.HK", "06869.HK", "02015.HK",
-    "09618.HK", "09888.HK", "02020.HK", "02269.HK", "01211.HK",
-    "09633.HK", "06160.HK", "00175.HK", "01093.HK", "01109.HK",
-    "01024.HK", "03690.HK", "09961.HK", "00669.HK", "09999.HK",
-    "01928.HK", "00027.HK", "00883.HK", "02333.HK", "01818.HK",
-    "01088.HK", "02688.HK", "00291.HK", "00288.HK", "00992.HK",
+    "01810.HK", "02628.HK", "06869.HK", "02015.HK", "01211.HK",
+    "09633.HK", "02269.HK", "01093.HK", "03690.HK", "09999.HK",
 ]
 
 A_UNIVERSE = [
     "600519.SH", "000858.SZ", "601318.SH", "000333.SZ", "600036.SH",
     "601166.SH", "600900.SH", "601012.SH", "600030.SH", "000001.SZ",
-    "002415.SZ", "601398.SH", "600276.SH", "000651.SZ", "300750.SZ",
-    "603259.SH", "000725.SZ", "002714.SZ", "601888.SH", "600809.SH",
-    "000568.SZ", "002475.SZ", "300059.SZ", "601899.SH", "603288.SH",
-    "000063.SZ", "002304.SZ", "600585.SH", "000895.SZ", "601088.SH",
-    "600031.SH", "000338.SZ", "002594.SZ", "601857.SH", "600050.SH",
-    "000100.SZ", "002230.SZ", "600690.SH", "600104.SH", "000625.SZ",
+    "002415.SZ", "600276.SH", "000651.SZ", "300750.SZ", "002594.SZ",
+    "000725.SZ", "600809.SH", "000063.SZ", "601899.SH", "000338.SZ",
 ]
 
 # ── Industry Map ──────────────────────────────────────────────────────
@@ -466,75 +458,66 @@ def _fetch_stock_data(symbol: str) -> dict | None:
         return None
 
 
-def screen(universe: list[str], top_n: int = 8) -> list[StockScore]:
-    """Screen stocks using 7-factor quantitative model."""
-    # Phase 1: Fetch all stock data in parallel
+def screen(universe: list[str], top_n: int = 6) -> list[StockScore]:
+    """Screen stocks using 7-factor model. Fast path: technical first, then enrich."""
+    # Phase 1: Fetch price data in parallel (3 workers max)
     all_data: list[dict] = []
-    with ThreadPoolExecutor(max_workers=6) as pool:
+    with ThreadPoolExecutor(max_workers=3) as pool:
         futures = {pool.submit(_fetch_stock_data, sym): sym for sym in universe}
-        for fut in as_completed(futures):
-            d = fut.result()
-            if d:
-                all_data.append(d)
+        for fut in as_completed(futures, timeout=45):
+            try:
+                d = fut.result(timeout=15)
+                if d: all_data.append(d)
+            except Exception:
+                pass
 
     if not all_data:
         return []
 
-    # Phase 2: Compute all factors for each stock
+    # Phase 2: Quick rank by momentum to pick top 12 candidates
+    ranked = sorted(all_data, key=lambda d: d.get("r1m", 0) + d.get("r3m", 0) * 0.5, reverse=True)
+    candidates = ranked[:12]
+
+    # Phase 3: Compute factors (all in parallel batches)
     scores: list[StockScore] = []
-    for d in all_data:
+    for d in candidates:
         s = StockScore(
-            symbol=d["symbol"],
-            name=d["name"],
-            price=d["price"],
-            change_pct=d["change_pct"],
-            industry=INDUSTRY_MAP.get(d["symbol"], ""),
+            symbol=d["symbol"], name=d["name"], price=d["price"],
+            change_pct=d["change_pct"], industry=INDUSTRY_MAP.get(d["symbol"], ""),
             signals=d["signals"],
         )
-
         closes = d["closes"]
         price = d["price"]
-
-        # Market factor (compare to index — simplified: use change_pct as proxy)
         s.factors.market = _calc_market_factor(d["change_pct"], 0)
-
-        # Value factor
-        # Fetch fundamentals
-        fund = _fetch_fundamentals(d["symbol"])
-        s.pe = fund["pe"]
-        s.pb = fund["pb"]
-        s.roe = fund["roe"]
-        s.market_cap = fund["market_cap"]
-
-        s.factors.value = _calc_value_factor(price, closes, s.pe, s.pb)
-
-        # Momentum factor
         s.factors.momentum = _calc_momentum_factor(d["r1w"], d["r1m"], d["r3m"])
-
-        # Quality factor
-        s.factors.quality = _calc_quality_factor(d["max_dd"], d["vol_ratio"], closes, s.roe)
-
-        # Technical factor
         s.factors.technical = _calc_technical_factor(closes, price)
-
-        # Store raw data for aggregate calculations
         s._raw = d  # type: ignore
         scores.append(s)
 
-    # Phase 3: Industry factor (needs all scores)
-    for s in scores:
-        s.factors.industry = _calc_industry_factor(s.symbol, [
-            {"symbol": x.symbol, "change_pct": x.change_pct} for x in scores
-        ])
+    # Phase 4: Enrich — fundamentals + quality + industry + news (parallel)
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        def enrich(ss: StockScore) -> None:
+            d = ss._raw
+            try:
+                fund = _fetch_fundamentals(ss.symbol)
+                ss.pe = fund["pe"]
+                ss.pb = fund["pb"]
+                ss.roe = fund["roe"]
+                ss.market_cap = fund["market_cap"]
+                ss.factors.value = _calc_value_factor(ss.price, d["closes"], ss.pe, ss.pb)
+                ss.factors.quality = _calc_quality_factor(d["max_dd"], d["vol_ratio"], d["closes"], ss.roe)
+                ss.factors.industry = _calc_industry_factor(ss.symbol, [
+                    {"symbol": x.symbol, "change_pct": x.change_pct} for x in scores
+                ])
+                ss.factors.information, ss.news_headlines = _calc_info_factor(ss.symbol, ss.name)
+            except Exception as e:
+                logger.debug("enrich failed for %s: %s", ss.symbol, e)
+        futures = [pool.submit(enrich, s) for s in scores]
+        for f in as_completed(futures, timeout=30):
+            try: f.result(timeout=20)
+            except Exception: pass
 
-    # Phase 4: Information factor (news — parallel)
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        info_futures = {pool.submit(_calc_info_factor, s.symbol, s.name): s for s in scores}
-        for fut in as_completed(info_futures):
-            s = info_futures[fut]
-            s.factors.information, s.news_headlines = fut.result()
-
-    # Phase 5: Compute total scores
+    # Phase 5: Final scoring
     for s in scores:
         s.total_score = round(s.factors.total, 1)
 
