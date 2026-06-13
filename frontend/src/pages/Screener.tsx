@@ -3,23 +3,23 @@ import { Trophy, RefreshCw } from "lucide-react";
 
 interface Pick {
   symbol: string; name: string; price: number; change_pct: number;
-  industry: string; pe: number; pb: number; roe: number; market_cap: number;
+  pe: number; pb: number; roe: number; market_cap: number;
   total_score: number;
   factors: {
     market: number; value: number; momentum: number;
     quality: number; information: number; industry: number; technical: number;
   };
-  news: string[]; signals: string[];
+  signals: string[];
 }
 
 const FACTORS = [
   { key: "momentum", label: "动量", desc: "1周/1月/3月收益" },
-  { key: "value", label: "价值", desc: "价格在52周位置" },
-  { key: "information", label: "信息", desc: "新闻情感分析" },
+  { key: "value", label: "价值", desc: "PE/PB估值" },
+  { key: "quality", label: "质量", desc: "ROE/波动率" },
   { key: "technical", label: "技术", desc: "MA/RSI/MACD" },
-  { key: "quality", label: "质量", desc: "回撤/波动率" },
-  { key: "industry", label: "行业", desc: "行业相对强度" },
-  { key: "market", label: "市场", desc: "超额收益Alpha" },
+  { key: "market", label: "市场", desc: "涨跌幅强度" },
+  { key: "information", label: "信息", desc: "新闻情感" },
+  { key: "industry", label: "行业", desc: "行业趋势" },
 ] as const;
 
 const UNIVERSES = [
@@ -63,8 +63,9 @@ export function Screener() {
             <div>
               <h2 className="text-lg font-bold flex items-center gap-2">
                 <Trophy className="h-5 w-5 text-orange-500" /> 每日选股
+                <span className="text-xs font-normal text-neutral-500 ml-1">全市场筛选</span>
               </h2>
-              <p className="text-[10px] text-muted-foreground mt-0.5">七因子量化模型 · 动量20% · 价值15% · 信息15% · 技术15% · 质量15% · 行业10% · 市场10%</p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">全市场基本面初筛 → 技术分析精排 → 七因子评分</p>
             </div>
             <button onClick={() => run(universe)} disabled={loading}
               className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs hover:bg-muted transition-colors">
@@ -108,10 +109,7 @@ export function Screener() {
                   <div className="flex items-center gap-2">
                     <span className="font-bold text-sm">{pick.symbol}</span>
                     <span className="text-xs text-muted-foreground truncate">{pick.name}</span>
-                    {pick.industry && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-orange-500/10 text-orange-500 font-medium shrink-0">{pick.industry}</span>
-                    )}
-                  </div>
+                    </div>
                   <div className="flex items-center gap-3 mt-0.5 text-xs">
                     <span className="font-mono">{pick.price.toFixed(2)}</span>
                     <span className={`font-medium ${pick.change_pct >= 0 ? "text-emerald-500" : "text-red-500"}`}>

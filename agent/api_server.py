@@ -3155,24 +3155,22 @@ from src.screener import screen, get_universe
 
 
 @app.get("/screener/{universe}", dependencies=[Depends(require_auth)])
-async def screener(universe: str, top: int = Query(8, ge=5, le=12)):
-    """Screen stocks and return top picks with 7-factor scores."""
-    symbols = get_universe(universe)
-    if not symbols:
+async def screener(universe: str, top: int = Query(6, ge=5, le=10)):
+    """Screen ALL stocks and return top picks."""
+    if universe not in ("hk", "csi300", "港股", "a股"):
         raise HTTPException(status_code=400, detail=f"Unknown universe: {universe}. Try: hk, csi300")
-    results = screen(symbols, top_n=top)
+    universe_key = "hk" if universe in ("hk", "港股") else "csi300"
+    results = screen(universe_key, max_stocks=60, top_n=top)
     return {
-        "universe": universe,
+        "universe": universe_key,
         "updated_at": datetime.now().isoformat(),
-        "model": "7-Factor Quantitative Model",
-        "weights": WEIGHTS,
+        "total_screened": len(results),
         "picks": [
             {
                 "symbol": s.symbol,
                 "name": s.name,
                 "price": s.price,
                 "change_pct": s.change_pct,
-                "industry": s.industry,
                 "pe": round(s.pe, 1),
                 "pb": round(s.pb, 1),
                 "roe": round(s.roe, 1),
@@ -3187,7 +3185,6 @@ async def screener(universe: str, top: int = Query(8, ge=5, le=12)):
                     "industry": round(s.factors.industry, 1),
                     "technical": round(s.factors.technical, 1),
                 },
-                "news": s.news_headlines,
                 "signals": s.signals,
             }
             for s in results
