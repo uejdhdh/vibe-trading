@@ -3155,15 +3155,17 @@ from src.screener import screen, get_universe
 
 
 @app.get("/screener/{universe}", dependencies=[Depends(require_auth)])
-async def screener(universe: str, top: int = Query(10, ge=5, le=30)):
-    """Screen stocks and return top picks with scores."""
+async def screener(universe: str, top: int = Query(8, ge=5, le=12)):
+    """Screen stocks and return top picks with 7-factor scores."""
     symbols = get_universe(universe)
     if not symbols:
-        raise HTTPException(status_code=400, detail=f"Unknown universe: {universe}. Try: hk, csi300, us")
+        raise HTTPException(status_code=400, detail=f"Unknown universe: {universe}. Try: hk, csi300")
     results = screen(symbols, top_n=top)
     return {
         "universe": universe,
         "updated_at": datetime.now().isoformat(),
+        "model": "7-Factor Quantitative Model",
+        "weights": WEIGHTS,
         "picks": [
             {
                 "symbol": s.symbol,
@@ -3172,10 +3174,14 @@ async def screener(universe: str, top: int = Query(10, ge=5, le=30)):
                 "change_pct": s.change_pct,
                 "industry": s.industry,
                 "total_score": round(s.total_score, 1),
-                "breakdown": {
-                    "technical": s.tech_score,
-                    "news_sentiment": s.news_score,
-                    "industry_trend": s.industry_score,
+                "factors": {
+                    "market": round(s.factors.market, 1),
+                    "value": round(s.factors.value, 1),
+                    "momentum": round(s.factors.momentum, 1),
+                    "quality": round(s.factors.quality, 1),
+                    "information": round(s.factors.information, 1),
+                    "industry": round(s.factors.industry, 1),
+                    "technical": round(s.factors.technical, 1),
                 },
                 "news": s.news_headlines,
                 "signals": s.signals,
