@@ -3148,6 +3148,44 @@ async def monitor_batch(req: MonitorRequest):
 
 
 # ============================================================================
+# Stock Screener — daily/weekly picks with multi-factor scoring
+# ============================================================================
+
+from src.screener import screen, get_universe
+
+
+@app.get("/screener/{universe}", dependencies=[Depends(require_auth)])
+async def screener(universe: str, top: int = Query(10, ge=5, le=30)):
+    """Screen stocks and return top picks with scores."""
+    symbols = get_universe(universe)
+    if not symbols:
+        raise HTTPException(status_code=400, detail=f"Unknown universe: {universe}. Try: hk, csi300, us")
+    results = screen(symbols, top_n=top)
+    return {
+        "universe": universe,
+        "updated_at": datetime.now().isoformat(),
+        "picks": [
+            {
+                "symbol": s.symbol,
+                "name": s.name,
+                "price": s.price,
+                "change_pct": s.change_pct,
+                "total_score": round(s.total_score, 1),
+                "breakdown": {
+                    "trend": s.trend_score,
+                    "momentum": s.momentum_score,
+                    "volume": s.volume_score,
+                    "rsi": s.rsi_score,
+                    "macd": s.macd_score,
+                },
+                "signals": s.signals,
+            }
+            for s in results
+        ],
+    }
+
+
+# ============================================================================
 # Alpha Zoo routes (Web UI) — defined in src/api/alpha_routes.py
 # ============================================================================
 

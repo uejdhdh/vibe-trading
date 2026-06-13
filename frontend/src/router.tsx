@@ -9,6 +9,9 @@ const Settings = lazy(() =>
 const Monitor = lazy(() =>
   import("@/pages/Monitor").then((m) => ({ default: m.Monitor })),
 );
+const Screener = lazy(() =>
+  import("@/pages/Screener").then((m) => ({ default: m.Screener })),
+);
 
 function PageLoader() {
   return (
@@ -33,6 +36,7 @@ export const router = createBrowserRouter([
       { path: "/", element: <Navigate to="/agent" replace /> },
       { path: "/agent", element: wrap(Agent) },
       { path: "/monitor", element: wrap(Monitor) },
+      { path: "/screener", element: wrap(Screener) },
       { path: "/settings", element: wrap(Settings) },
     ],
   },
