@@ -8,58 +8,85 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logger = logging.getLogger(__name__)
 
-# ── Pool: fetched dynamically from index members ──────────────────────
+# ── Heat rank pools via direct Eastmoney API ──────────────────────────
 
-def _get_hk_pool() -> list[str]:
-    """HK stock pool: HSI + HSCEI constituents (~80 most liquid HK stocks)."""
-    stocks = []
+def _fetch_a_hot_pool(max_stocks: int = 50) -> list[str]:
+    """Fetch top N A-shares from 东方财富 heat rank. Direct HTTP, no akshare."""
     try:
-        import yfinance as yf
-        # Hang Seng Index components via yfinance
-        hsi = yf.Ticker("^HSI")
-        if hsi.info:
-            # Many index tickers expose holdings via mutualfund_holdings
-            pass
-        # Fall back to known HSI constituents (top 50 by market cap)
-        hsi_members = [
-            "00700","09988","00941","00388","01299","00005","02318","00939",
-            "01398","03988","01810","02628","01211","09633","02015","03690",
-            "09999","01024","09961","02382","01093","00175","00883","02688",
-            "01818","02333","09618","09888","02020","02269","00669","01109",
-            "01928","00027","00291","00288","00011","00006","00002","00003",
-            "00001","00012","00016","00017","00019","00023","00066","00083",
-            "00101","01088",
-        ]
-        stocks = [f"{c}.HK" for c in hsi_members]
-    except Exception:
-        pass
-    return stocks if stocks else ["00700.HK","09988.HK","00388.HK","01299.HK","00005.HK"]
+        import requests
+        # Step 1: Get ranked stock codes
+        r = requests.post(
+            "https://emappdata.eastmoney.com/stockrank/getAllCurrentList",
+            json={"appId": "appId01", "globalId": "786e4c21-70dc-435a-93bb-38",
+                  "marketType": "", "pageNo": 1, "pageSize": min(max_stocks, 100)},
+            headers={"User-Agent": "Mozilla/5.0", "Referer": "https://guba.eastmoney.com/"},
+            timeout=15
+        )
+        data = r.json()
+        if not data.get("data"):
+            return []
+        codes = [item["sc"] for item in data["data"]]
 
-def _get_a_pool() -> list[str]:
-    """A-share pool: CSI 300 constituents (300 largest A-shares by market cap)."""
-    # Core CSI 300 members — most liquid A-shares
-    csi300 = [
-        "600519","000858","601318","000333","600036","601166","600900",
-        "601012","600030","000001","002415","601398","600276","000651",
-        "300750","603259","000725","002714","601888","600809","000568",
-        "002475","300059","601899","000063","002304","600585","000895",
-        "600031","000338","002594","601857","600050","000100","002230",
-        "600690","600104","000625","601088","603288","600809","601939",
-        "601328","600016","601668","601390","601688","600837","601211",
-        "600009","601009","600015","601169","601229","600000","601818",
-        "002142","000002","001979","600048","601628","601601","601336",
-        "601377","600030","000776","002736","600958","601066","600999",
-        "601878","300033","300124","002049","603501","002371","600745",
-        "000538","002916","601138","000063",
-    ]
-    # 6xxxxx → SH, 0xxxxx/3xxxxx → SZ
-    results = []
-    for c in csi300:
-        if c.startswith(("6", "5", "9")):
-            results.append(f"{c}.SH")
-        else:
-            results.append(f"{c}.SZ")
-    return results
+        # Step 2: Get price details
+        marks = [("0." + c[2:] if "SZ" in c else "1." + c[2:]) for c in codes]
+        r2 = requests.get(
+            "https://push2.eastmoney.com/api/qt/ulist.np/get",
+            params={"ut": "f057cbcbce2a86e2866ab8877db1d059", "fltt": "2", "invt": "2",
+                    "fields": "f12", "secids": ",".join(marks)},
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=10
+        )
+        items = r2.json().get("data", {}).get("diff", [])
+        symbols = []
+        for item in items:
+            code = item.get("f12", "")
+            if code.startswith("6"):
+                symbols.append(f"{code}.SH")
+            else:
+                symbols.append(f"{code}.SZ")
+            if len(symbols) >= max_stocks:
+                break
+        return symbols
+    except Exception as e:
+        logger.warning("A hot rank failed: %s", e)
+        return []
+
+
+def _fetch_hk_hot_pool(max_stocks: int = 50) -> list[str]:
+    """Fetch top N HK stocks from 东方财富 HK heat rank."""
+    try:
+        import requests
+        r = requests.post(
+            "https://emappdata.eastmoney.com/stockrank/getAllCurrHkUsList",
+            json={"appId": "appId01", "globalId": "786e4c21-70dc-435a-93bb-38",
+                  "marketType": "000003", "pageNo": 1, "pageSize": min(max_stocks, 100)},
+            headers={"User-Agent": "Mozilla/5.0", "Referer": "https://guba.eastmoney.com/"},
+            timeout=15
+        )
+        data = r.json()
+        if not data.get("data"):
+            return []
+        codes = [item["sc"] for item in data["data"]]
+
+        marks = ["116." + c[3:] for c in codes]
+        r2 = requests.get(
+            "https://push2.eastmoney.com/api/qt/ulist.np/get",
+            params={"ut": "f057cbcbce2a86e2866ab8877db1d059", "fltt": "2", "invt": "2",
+                    "fields": "f12", "secids": ",".join(marks)},
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=10
+        )
+        items = r2.json().get("data", {}).get("diff", [])
+        symbols = []
+        for item in items:
+            code = str(item.get("f12", "")).zfill(5)
+            symbols.append(f"{code}.HK")
+            if len(symbols) >= max_stocks:
+                break
+        return symbols
+    except Exception as e:
+        logger.warning("HK hot rank failed: %s", e)
+        return []
 
 # ── Factor config ─────────────────────────────────────────────────────
 
@@ -372,11 +399,16 @@ def _enrich_top(scores: list[StockScore]) -> None:
 # ── Main ──────────────────────────────────────────────────────────────
 
 def screen(universe: str, top_n: int = 6) -> list[StockScore]:
-    """Screen stocks from index-constituent pool with 8-factor model."""
+    """Screen stocks from 东方财富 heat rank pool with 8-factor model."""
     if universe in ("hk", "港股"):
-        stocks = _get_hk_pool()
+        stocks = _fetch_hk_hot_pool(50)
+        if not stocks:  # fallback
+            stocks = ["00700.HK","09988.HK","00388.HK","00941.HK","01299.HK",
+                       "00005.HK","01810.HK","02318.HK","00939.HK","01398.HK"]
     else:
-        stocks = _get_a_pool()
+        stocks = _fetch_a_hot_pool(50)
+        if not stocks:  # fallback
+            stocks = ["600519.SH","000858.SZ","601318.SH","300750.SZ","000333.SZ"]
 
     if not stocks:
         return []
