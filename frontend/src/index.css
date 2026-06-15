@@ -4,47 +4,69 @@
 
 @layer base {
   :root {
-    --background: 240 6% 7%;
+    --background: 0 0% 4%;
     --foreground: 0 0% 95%;
-    --card: 240 5% 10%;
+    --card: 0 0% 7%;
     --card-foreground: 0 0% 95%;
+    --popover: 0 0% 7%;
+    --popover-foreground: 0 0% 95%;
     --primary: 25 95% 53%;
     --primary-foreground: 0 0% 100%;
-    --muted: 240 4% 16%;
-    --muted-foreground: 240 5% 60%;
+    --secondary: 0 0% 13%;
+    --secondary-foreground: 0 0% 90%;
+    --muted: 0 0% 15%;
+    --muted-foreground: 0 0% 60%;
+    --accent: 0 0% 13%;
+    --accent-foreground: 0 0% 90%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
-    --border: 240 4% 18%;
+    --border: 0 0% 17%;
+    --input: 0 0% 17%;
+    --ring: 25 95% 53%;
     --radius: 0.75rem;
     --success: 142 71% 45%;
     --danger: 0 84% 60%;
     --warning: 38 92% 50%;
     --info: 217 91% 60%;
   }
-
-  * { border-color: hsl(var(--border)); }
-
-  body {
-    background: #121213;
-    color: #eeeef0;
-    font-feature-settings: "cv02","cv03","cv04","cv09";
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-  }
-
-  ::-webkit-scrollbar { width: 4px; }
-  ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: hsl(240 4% 25%); border-radius: 4px; }
-  ::-webkit-scrollbar-thumb:hover { background: hsl(240 4% 35%); }
-
-  @media (max-width: 768px) {
-    input, textarea, select { font-size: 16px !important; }
-  }
 }
 
-.prose { color: hsl(var(--foreground)); max-width: none; }
-.prose table { font-size: 0.8rem; }
-.prose th { background: hsl(var(--muted)); color: hsl(var(--muted-foreground)); }
-.prose td { border-color: hsl(var(--border)); color: hsl(var(--foreground)); }
-.prose code { background: hsl(var(--muted)); color: hsl(var(--foreground)); padding: 0.1em 0.3em; border-radius: 4px; }
-.prose p, .prose li, .prose h1, .prose h2, .prose h3, .prose h4 { color: hsl(var(--foreground)); }
+/* Base styles — explicit colors, NOT using Tailwind classes that may break */
+html, body {
+  background: #0c0c0d;
+  color: #eeeef0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* { border-color: hsl(0 0% 17%); }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #2a2a2d; border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: #3a3a3d; }
+
+/* Inputs/buttons — ensure readable */
+input, textarea, select, button { color: #eeeef0; }
+input::placeholder, textarea::placeholder { color: #686870; }
+input, textarea, select { background: #1a1a1d; border-color: #2a2a2d; }
+
+/* Prevent iOS zoom */
+@media (max-width: 768px) {
+  input, textarea, select { font-size: 16px !important; }
+}
+
+/* Prose for chat messages */
+.prose { color: #eeeef0 !important; max-width: none; }
+.prose * { border-color: #2a2a2d !important; }
+.prose p, .prose li, .prose h1, .prose h2, .prose h3, .prose h4, .prose h5, .prose h6 { color: #eeeef0 !important; }
+.prose strong { color: #ffffff !important; }
+.prose a { color: #f97316 !important; }
+.prose code { background: #1a1a1d; color: #e0e0e0; padding: 0.15em 0.4em; border-radius: 4px; font-size: 0.85em; }
+.prose pre { background: #1a1a1d; }
+.prose pre code { background: transparent; }
+.prose table { font-size: 0.85rem; border-collapse: collapse; }
+.prose th { background: #1a1a1d; color: #a0a0a5; font-weight: 600; padding: 0.5em 0.75em; text-align: left; }
+.prose td { color: #eeeef0; padding: 0.5em 0.75em; border-bottom: 1px solid #2a2a2d; }
+.prose blockquote { border-left-color: #f97316; color: #c0c0c5; }

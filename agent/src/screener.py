@@ -198,26 +198,55 @@ def _fetch_hk_hot_pool(max_stocks: int = 50) -> list[str]:
 
 # ── Data fetching ─────────────────────────────────────────────────────
 
-def _get_history(symbol: str) -> tuple[list[float] | None, str, float, float, float, float]:
-    """Returns (closes, name, price, pe, pb, market_cap)."""
+def _get_data(symbol: str) -> tuple[list[float] | None, str, float, float, float, float]:
+    """Get closes + fundamentals via monitor (Yahoo direct API, proven to work)."""
+    from src.monitor import fetch_quote
+    q = fetch_quote(symbol)
+    if q.error:
+        return None, q.name or "", q.price or 0, 0, 0, 0
+
+    # Get closes from Yahoo direct API (fast, works from Render)
+    closes = None
+    try:
+        import requests
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=3mo"
+        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+        if r.status_code == 200:
+            data = r.json()
+            result = data.get("chart", {}).get("result", [])
+            if result:
+                ind = result[0].get("indicators", {})
+                adj = ind.get("adjclose", [{}])[0].get("adjclose") or ind.get("quote", [{}])[0].get("close")
+                if adj:
+                    closes = [float(v) for v in adj if v is not None]
+    except Exception:
+        pass
+
+    # Fallback: try yfinance history
+    if not closes:
+        try:
+            import yfinance as yf
+            hist = yf.Ticker(symbol).history(period="3mo")
+            if not hist.empty:
+                closes = hist["Close"].tolist()
+        except Exception:
+            pass
+
+    if not closes or len(closes) < 20:
+        return None, q.name, q.price, 0, 0, 0
+
+    # Get fundamentals from yfinance
+    pe = pb = mv = 0.0
     try:
         import yfinance as yf
-        t = yf.Ticker(symbol)
-        info = t.info or {}
-        hist = t.history(period="3mo")
-        closes = hist["Close"].tolist() if not hist.empty else None
-        name = str(info.get("shortName") or info.get("longName") or "")
-        price = float(info.get("currentPrice") or info.get("regularMarketPrice") or 0)
+        info = yf.Ticker(symbol).info or {}
         pe = float(info.get("trailingPE") or info.get("forwardPE") or 0)
         pb = float(info.get("priceToBook") or 0)
-        roe = float(info.get("returnOnEquity") or 0) * 100 if info.get("returnOnEquity") else 0
         mv = float(info.get("marketCap") or 0)
-        if not closes:
-            return None, name, price, pe, pb, mv
-        if price == 0 and closes: price = closes[-1]
-        return closes, name, price, pe, pb, mv
     except Exception:
-        return None, "", 0, 0, 0, 0
+        pass
+
+    return closes, q.name, q.price or closes[-1], pe, pb, mv
 
 def _calc_returns(closes: list[float]) -> tuple:
     price = closes[-1]
@@ -413,7 +442,7 @@ def screen(universe: str = "hk", top_n: int = 6, symbols: list[str] | None = Non
     scores: list[StockScore] = []
     with ThreadPoolExecutor(max_workers=4) as pool:
         def process(sym):
-            closes, name, price, pe, pb, mv = _get_history(sym)
+            closes, name, price, pe, pb, mv = _get_data(sym)
             if closes and len(closes) >= 20:
                 return _score(closes, name, pe, pb, roe=0, mv=mv, symbol=sym)
             return None
