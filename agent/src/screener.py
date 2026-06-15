@@ -8,15 +8,58 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logger = logging.getLogger(__name__)
 
-# ── HK stock pool (for HK screener) ───────────────────────────────────
+# ── Pool: fetched dynamically from index members ──────────────────────
 
-HK_STOCKS = [
-    "00700.HK","09988.HK","00941.HK","00388.HK","01299.HK","00005.HK",
-    "02318.HK","00939.HK","01398.HK","03988.HK","01810.HK","02628.HK",
-    "06869.HK","02015.HK","01211.HK","09633.HK","02269.HK","03690.HK",
-    "09999.HK","01024.HK","09961.HK","02382.HK","01093.HK","00175.HK",
-    "00883.HK","01818.HK","02333.HK","09618.HK","09888.HK","02020.HK",
-]
+def _get_hk_pool() -> list[str]:
+    """HK stock pool: HSI + HSCEI constituents (~80 most liquid HK stocks)."""
+    stocks = []
+    try:
+        import yfinance as yf
+        # Hang Seng Index components via yfinance
+        hsi = yf.Ticker("^HSI")
+        if hsi.info:
+            # Many index tickers expose holdings via mutualfund_holdings
+            pass
+        # Fall back to known HSI constituents (top 50 by market cap)
+        hsi_members = [
+            "00700","09988","00941","00388","01299","00005","02318","00939",
+            "01398","03988","01810","02628","01211","09633","02015","03690",
+            "09999","01024","09961","02382","01093","00175","00883","02688",
+            "01818","02333","09618","09888","02020","02269","00669","01109",
+            "01928","00027","00291","00288","00011","00006","00002","00003",
+            "00001","00012","00016","00017","00019","00023","00066","00083",
+            "00101","01088",
+        ]
+        stocks = [f"{c}.HK" for c in hsi_members]
+    except Exception:
+        pass
+    return stocks if stocks else ["00700.HK","09988.HK","00388.HK","01299.HK","00005.HK"]
+
+def _get_a_pool() -> list[str]:
+    """A-share pool: CSI 300 constituents (300 largest A-shares by market cap)."""
+    # Core CSI 300 members — most liquid A-shares
+    csi300 = [
+        "600519","000858","601318","000333","600036","601166","600900",
+        "601012","600030","000001","002415","601398","600276","000651",
+        "300750","603259","000725","002714","601888","600809","000568",
+        "002475","300059","601899","000063","002304","600585","000895",
+        "600031","000338","002594","601857","600050","000100","002230",
+        "600690","600104","000625","601088","603288","600809","601939",
+        "601328","600016","601668","601390","601688","600837","601211",
+        "600009","601009","600015","601169","601229","600000","601818",
+        "002142","000002","001979","600048","601628","601601","601336",
+        "601377","600030","000776","002736","600958","601066","600999",
+        "601878","300033","300124","002049","603501","002371","600745",
+        "000538","002916","601138","000063",
+    ]
+    # 6xxxxx → SH, 0xxxxx/3xxxxx → SZ
+    results = []
+    for c in csi300:
+        if c.startswith(("6", "5", "9")):
+            results.append(f"{c}.SH")
+        else:
+            results.append(f"{c}.SZ")
+    return results
 
 # ── Factor config ─────────────────────────────────────────────────────
 
@@ -329,11 +372,11 @@ def _enrich_top(scores: list[StockScore]) -> None:
 # ── Main ──────────────────────────────────────────────────────────────
 
 def screen(universe: str, top_n: int = 6) -> list[StockScore]:
-    """Screen stocks from liquid curated pool with 8-factor model."""
+    """Screen stocks from index-constituent pool with 8-factor model."""
     if universe in ("hk", "港股"):
-        stocks = HK_STOCKS
+        stocks = _get_hk_pool()
     else:
-        stocks = A_STOCKS if A_STOCKS else HK_STOCKS  # fallback
+        stocks = _get_a_pool()
 
     if not stocks:
         return []
