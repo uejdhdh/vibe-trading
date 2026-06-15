@@ -329,13 +329,11 @@ def _enrich_top(scores: list[StockScore]) -> None:
 # ── Main ──────────────────────────────────────────────────────────────
 
 def screen(universe: str, top_n: int = 6) -> list[StockScore]:
-    """Screen stocks: THS heat pool for A-shares, curated pool for HK."""
+    """Screen stocks from liquid curated pool with 8-factor model."""
     if universe in ("hk", "港股"):
-        stocks = _fetch_hk_hot_pool(50)  # 东方财富 HK heat rank
-        if not stocks:
-            stocks = HK_STOCKS  # fallback to curated
+        stocks = HK_STOCKS
     else:
-        stocks = _fetch_ths_hot_pool(50)  # 同花顺 A-share heat rank
+        stocks = A_STOCKS if A_STOCKS else HK_STOCKS  # fallback
 
     if not stocks:
         return []
