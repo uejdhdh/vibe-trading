@@ -398,9 +398,11 @@ def _enrich_top(scores: list[StockScore]) -> None:
 
 # ── Main ──────────────────────────────────────────────────────────────
 
-def screen(universe: str, top_n: int = 6) -> list[StockScore]:
-    """Screen stocks from 东方财富 heat rank pool with 8-factor model."""
-    if universe in ("hk", "港股"):
+def screen(universe: str = "hk", top_n: int = 6, symbols: list[str] | None = None) -> list[StockScore]:
+    """Screen stocks with 8-factor model. Uses provided symbols if given."""
+    if symbols:
+        stocks = symbols
+    elif universe in ("hk", "港股"):
         stocks = _fetch_hk_hot_pool(50)
     else:
         stocks = _fetch_a_hot_pool(50)

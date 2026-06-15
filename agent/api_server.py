@@ -3154,6 +3154,43 @@ async def monitor_batch(req: MonitorRequest):
 from src.screener import screen, get_universe
 
 
+class ScoreRequest(BaseModel):
+    symbols: list[str] = Field(min_length=5, max_length=80)
+    universe: str = "hk"
+
+
+@app.post("/screener/score", dependencies=[Depends(require_auth)])
+async def screener_score(req: ScoreRequest):
+    """Score a list of symbols (8-factor model)."""
+    results = screen(req.universe, symbols=req.symbols, top_n=6)
+    if not results:
+        raise HTTPException(status_code=503, detail="无法获取K线数据，请稍后重试")
+    return {
+        "universe": req.universe,
+        "updated_at": datetime.now().isoformat(),
+        "picks": [
+            {
+                "symbol": s.symbol, "name": s.name, "price": s.price,
+                "change_pct": s.change_pct, "pe": round(s.pe, 1),
+                "pb": round(s.pb, 1), "roe": round(s.roe, 1),
+                "market_cap": s.market_cap, "total_score": round(s.total_score, 1),
+                "factors": {
+                    "momentum": round(s.factors.momentum, 1),
+                    "technical": round(s.factors.technical, 1),
+                    "volume": round(s.factors.volume, 1),
+                    "trend": round(s.factors.trend, 1),
+                    "catalyst": round(s.factors.catalyst, 1),
+                    "industry": round(s.factors.industry, 1),
+                    "news_sentiment": round(s.factors.news_sentiment, 1),
+                    "value": round(s.factors.value, 1),
+                },
+                "signals": s.signals,
+            }
+            for s in results
+        ],
+    }
+
+
 @app.get("/screener/{universe}", dependencies=[Depends(require_auth)])
 async def screener(universe: str, top: int = Query(6, ge=5, le=10)):
     """Screen ALL stocks and return top picks."""
