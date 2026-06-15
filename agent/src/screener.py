@@ -402,13 +402,8 @@ def screen(universe: str, top_n: int = 6) -> list[StockScore]:
     """Screen stocks from 东方财富 heat rank pool with 8-factor model."""
     if universe in ("hk", "港股"):
         stocks = _fetch_hk_hot_pool(50)
-        if not stocks:  # fallback
-            stocks = ["00700.HK","09988.HK","00388.HK","00941.HK","01299.HK",
-                       "00005.HK","01810.HK","02318.HK","00939.HK","01398.HK"]
     else:
         stocks = _fetch_a_hot_pool(50)
-        if not stocks:  # fallback
-            stocks = ["600519.SH","000858.SZ","601318.SH","300750.SZ","000333.SZ"]
 
     if not stocks:
         return []

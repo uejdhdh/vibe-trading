@@ -44,8 +44,12 @@ export function Screener() {
       });
       if (res.ok) {
         const data = await res.json();
-        setPicks(data.picks || []);
-        if (data.weekend_note) setNote(data.weekend_note);
+        if (data.picks && data.picks.length > 0) {
+          setPicks(data.picks);
+          if (data.weekend_note) setNote(data.weekend_note);
+        } else {
+          setError("数据获取失败：无法连接东方财富热度榜，请稍后重试");
+        }
       }
       else setError("筛选失败，请稍后重试");
     } catch { setError("网络超时，请重试"); }
