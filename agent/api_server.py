@@ -3151,7 +3151,7 @@ async def monitor_batch(req: MonitorRequest):
 # Stock Screener — daily/weekly picks with multi-factor scoring
 # ============================================================================
 
-from src.screener import screen, get_universe
+from src.screener import screen
 
 
 class ScoreRequest(BaseModel):
