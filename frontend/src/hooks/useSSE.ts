@@ -17,9 +17,9 @@ interface SSEConfig {
 }
 
 const DEFAULTS: Required<SSEConfig> = {
-  initialRetryMs: 1000,
-  maxRetryMs: 30000,
-  backoffFactor: 2,
+  initialRetryMs: 2000,
+  maxRetryMs: 60000,
+  backoffFactor: 1.5,
   dedupeCapacity: 500,
 };
 
