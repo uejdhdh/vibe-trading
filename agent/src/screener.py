@@ -198,54 +198,12 @@ def _fetch_hk_hot_pool(max_stocks: int = 50) -> list[str]:
 
 # ── Data fetching ─────────────────────────────────────────────────────
 
-def _get_data(symbol: str) -> tuple[list[float] | None, str, float, float, float, float]:
-    """Get closes + fundamentals. Uses monitor for price, then simple history fetch."""
+def _get_data(symbol: str) -> tuple[dict | None, float, float, float, float]:
+    """Get monitor quote + fundamentals. Returns (indicator_dict, price, pe, pb, mv)."""
     from src.monitor import fetch_quote
     q = fetch_quote(symbol)
     if q.error or q.price <= 0:
-        return None, "", 0, 0, 0, 0
-
-    # Get closes: try Sina (A-shares) then Yahoo then yfinance
-    closes = None
-    if symbol.endswith((".SH", ".SZ")):
-        try:
-            import requests
-            code = symbol.replace(".SH", "").replace(".SZ", "")
-            mkt = "sh" if symbol.endswith(".SH") else "sz"
-            url = f"https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={mkt}{code}&scale=240&ma=no&datalen=60"
-            r = requests.get(url, headers={"Referer": "https://finance.sina.com.cn"}, timeout=12)
-            if r.status_code == 200:
-                data = r.json()
-                if data:
-                    closes = [float(d["close"]) for d in data if d.get("close")]
-        except Exception:
-            pass
-
-    if not closes:
-        try:
-            import requests
-            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=3mo"
-            r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=12)
-            if r.status_code == 200:
-                data = r.json()
-                result = data.get("chart", {}).get("result", [])
-                if result:
-                    adj = result[0].get("indicators", {}).get("adjclose", [{}])[0].get("adjclose") or []
-                    closes = [float(v) for v in adj if v is not None]
-        except Exception:
-            pass
-
-    if not closes:
-        try:
-            import yfinance as yf
-            hist = yf.Ticker(symbol).history(period="3mo")
-            if not hist.empty:
-                closes = hist["Close"].tolist()
-        except Exception:
-            pass
-
-    if not closes or len(closes) < 20:
-        return None, q.name, q.price, 0, 0, 0
+        return None, 0, 0, 0, 0
 
     pe = pb = mv = 0.0
     try:
@@ -257,7 +215,7 @@ def _get_data(symbol: str) -> tuple[list[float] | None, str, float, float, float
     except Exception:
         pass
 
-    return closes, q.name, q.price, pe, pb, mv
+    return (q.indicators or {}), q.price, pe, pb, mv
 
 def _calc_returns(closes: list[float]) -> tuple:
     price = closes[-1]
@@ -274,6 +232,74 @@ def _calc_returns(closes: list[float]) -> tuple:
     rets = [(closes[i] / closes[i - 1] - 1) for i in range(1, len(closes))]
     vol = math.sqrt(sum((r - sum(rets) / len(rets)) ** 2 for r in rets) / len(rets)) * 100 if rets else 2
     return r1w, r1m, r3m, round(max_dd * 100, 1), round(vol, 2), price, chg
+
+def _score_from_indicator(symbol: str, ind: dict, price: float, pe: float, pb: float, mv: float) -> StockScore:
+    """Score stock using monitor's pre-computed indicators."""
+    ma = ind.get("ma", {}) or {}
+    rsi = ind.get("rsi")
+    macd = ind.get("macd", {}) or {}
+
+    s = StockScore(symbol=symbol, name="", price=round(price, 2), change_pct=0,
+                   pe=round(pe, 1), pb=round(pb, 1), roe=0, market_cap=mv)
+
+    # Momentum: infer from MA alignment (proxy for trend strength)
+    mom = 5.0
+    if ma.get("ma5") and ma.get("ma20"):
+        if price > ma["ma5"] > ma["ma20"]: mom = 9
+        elif price > ma["ma20"]: mom = 7
+        elif price > ma["ma60"]: mom = 5
+        else: mom = 3
+    s.factors.momentum = mom
+
+    # Technical: RSI + MACD + MA
+    tech = 5.0
+    if rsi is not None:
+        if 40 <= rsi <= 60: tech += 2
+        elif rsi < 30: tech += 3
+        elif rsi > 70: tech -= 1
+    if macd.get("macd") and macd["macd"] > 0: tech += 2
+    if macd.get("dif") and macd.get("dea"):
+        if macd["dif"] > macd["dea"]: tech += 1
+    if ma.get("ma5") and ma.get("ma20") and price > ma["ma5"] > ma["ma20"]: tech += 1
+    s.factors.technical = max(0, min(10, tech))
+
+    # Volume: approximated from price vs MA spread
+    spread = abs(price - ma.get("ma20", price)) / price * 100 if ma.get("ma20") else 0
+    s.factors.volume = min(10, 5 + spread)
+
+    # Trend
+    trend = 5.0
+    if ma.get("ma5") and ma.get("ma20") and price > ma["ma5"] > ma["ma20"]: trend = 8
+    elif ma.get("ma20") and price > ma["ma20"]: trend = 6
+    else: trend = 4
+    s.factors.trend = trend
+
+    # Catalyst
+    cat = 5.0
+    if 0 < pe < 15: cat += 2
+    elif 0 < pe < 25: cat += 1
+    if rsi and rsi < 35: cat += 2
+    s.factors.catalyst = max(0, min(10, cat))
+
+    # Value
+    v = 5.0
+    if 0 < pe < 15: v += 2
+    elif 0 < pe < 25: v += 1
+    if 0 < pb < 1.5: v += 1
+    s.factors.value = max(0, min(10, v))
+
+    # Defaults
+    s.factors.industry = 5.0
+    s.factors.news_sentiment = 5.0
+
+    s.total_score = round(s.factors.total, 1)
+
+    if s.factors.momentum >= 7: s.signals.append("强动量")
+    if s.factors.technical >= 7: s.signals.append("技术突破")
+    if s.factors.trend >= 7: s.signals.append("趋势向好")
+    if rsi and rsi < 35: s.signals.append("RSI超卖反弹")
+    return s
+
 
 def _score(closes: list[float], name: str, pe: float, pb: float, roe: float, mv: float, symbol: str) -> StockScore:
     r1w, r1m, r3m, max_dd, vol, price, chg = _calc_returns(closes)
@@ -453,10 +479,16 @@ def screen(universe: str = "hk", top_n: int = 6, symbols: list[str] | None = Non
     scores: list[StockScore] = []
     with ThreadPoolExecutor(max_workers=4) as pool:
         def process(sym):
-            closes, name, price, pe, pb, mv = _get_data(sym)
-            if closes and len(closes) >= 20:
-                return _score(closes, name, pe, pb, roe=0, mv=mv, symbol=sym)
-            return None
+            ind, price, pe, pb, mv = _get_data(sym)
+            if ind is None:
+                return None
+            return _score_from_indicator(sym, ind, price, pe, pb, mv)
+        futures = {pool.submit(process, s): s for s in stocks}
+        for fut in as_completed(futures, timeout=60):
+            try:
+                r = fut.result(timeout=12)
+                if r: scores.append(r)
+            except Exception: pass
         futures = {pool.submit(process, s): s for s in stocks}
         for fut in as_completed(futures, timeout=60):
             try:
