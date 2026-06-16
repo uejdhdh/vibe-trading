@@ -199,44 +199,42 @@ def _fetch_hk_hot_pool(max_stocks: int = 50) -> list[str]:
 # ── Data fetching ─────────────────────────────────────────────────────
 
 def _get_data(symbol: str) -> tuple[list[float] | None, str, float, float, float, float]:
-    """Get closes + fundamentals via monitor (Yahoo direct API, proven to work)."""
+    """Get closes + fundamentals. Uses monitor for price, then simple history fetch."""
     from src.monitor import fetch_quote
     q = fetch_quote(symbol)
-    if q.error:
-        return None, q.name or "", q.price or 0, 0, 0, 0
+    if q.error or q.price <= 0:
+        return None, "", 0, 0, 0, 0
 
-    # Get closes from Yahoo direct API (fast, works from Render)
+    # Get closes: try Sina (A-shares) then Yahoo then yfinance
     closes = None
-    try:
-        import requests
-        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=3mo"
-        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
-        if r.status_code == 200:
-            data = r.json()
-            result = data.get("chart", {}).get("result", [])
-            if result:
-                ind = result[0].get("indicators", {})
-                adj = ind.get("adjclose", [{}])[0].get("adjclose") or ind.get("quote", [{}])[0].get("close")
-                if adj:
-                    closes = [float(v) for v in adj if v is not None]
-    except Exception:
-        pass
-
-    # Fallback: Sina Finance for A-shares
-    if not closes and symbol.endswith((".SH", ".SZ")):
+    if symbol.endswith((".SH", ".SZ")):
         try:
             import requests
             code = symbol.replace(".SH", "").replace(".SZ", "")
             mkt = "sh" if symbol.endswith(".SH") else "sz"
-            hist_url = f"https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={mkt}{code}&scale=240&ma=no&datalen=60"
-            hr = requests.get(hist_url, headers={"Referer": "https://finance.sina.com.cn"}, timeout=10)
-            if hr.status_code == 200:
-                hist = hr.json()
-                closes = [float(d["close"]) for d in hist if d.get("close")]
+            url = f"https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={mkt}{code}&scale=240&ma=no&datalen=60"
+            r = requests.get(url, headers={"Referer": "https://finance.sina.com.cn"}, timeout=12)
+            if r.status_code == 200:
+                data = r.json()
+                if data:
+                    closes = [float(d["close"]) for d in data if d.get("close")]
         except Exception:
             pass
 
-    # Fallback: try yfinance history
+    if not closes:
+        try:
+            import requests
+            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=3mo"
+            r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=12)
+            if r.status_code == 200:
+                data = r.json()
+                result = data.get("chart", {}).get("result", [])
+                if result:
+                    adj = result[0].get("indicators", {}).get("adjclose", [{}])[0].get("adjclose") or []
+                    closes = [float(v) for v in adj if v is not None]
+        except Exception:
+            pass
+
     if not closes:
         try:
             import yfinance as yf
@@ -249,7 +247,6 @@ def _get_data(symbol: str) -> tuple[list[float] | None, str, float, float, float
     if not closes or len(closes) < 20:
         return None, q.name, q.price, 0, 0, 0
 
-    # Get fundamentals from yfinance
     pe = pb = mv = 0.0
     try:
         import yfinance as yf
@@ -260,7 +257,7 @@ def _get_data(symbol: str) -> tuple[list[float] | None, str, float, float, float
     except Exception:
         pass
 
-    return closes, q.name, q.price or closes[-1], pe, pb, mv
+    return closes, q.name, q.price, pe, pb, mv
 
 def _calc_returns(closes: list[float]) -> tuple:
     price = closes[-1]
