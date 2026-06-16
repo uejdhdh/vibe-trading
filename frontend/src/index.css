@@ -33,7 +33,7 @@
 
 /* Base styles — explicit colors, NOT using Tailwind classes that may break */
 html, body {
-  background: #0c0c0d;
+  background: #121215;
   color: #eeeef0;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;

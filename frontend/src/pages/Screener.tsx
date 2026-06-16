@@ -14,7 +14,7 @@ const FACTORS = [
   { key: "volume", label: "放量" }, { key: "value", label: "估值" },
 ];
 
-async function fetchHeatRank(market: "hk" | "a"): Promise<string[]> {
+async function fetchHeatRank(market: "hk" | "a"): Promise<{symbols: string[], names: Record<string,string>}> {
   const url = market === "hk"
     ? "https://emappdata.eastmoney.com/stockrank/getAllCurrHkUsList"
     : "https://emappdata.eastmoney.com/stockrank/getAllCurrentList";
@@ -27,22 +27,33 @@ async function fetchHeatRank(market: "hk" | "a"): Promise<string[]> {
   if (!d1.data) throw new Error("热度榜请求失败");
   const codes: string[] = d1.data.map((item: any) => item.sc);
 
-  // Step 2: get actual symbols
+  // Step 2: get symbols + Chinese names
   const marks = market === "hk"
     ? codes.map((c: string) => "116." + c.slice(3))
     : codes.map((c: string) => (c.includes("SZ") ? "0." + c.slice(2) : "1." + c.slice(2)));
   const params = new URLSearchParams({
     ut: "f057cbcbce2a86e2866ab8877db1d059", fltt: "2", invt: "2",
-    fields: "f12", secids: marks.join(","),
+    fields: "f12,f14", secids: marks.join(","),
   });
   const r2 = await fetch(`https://push2.eastmoney.com/api/qt/ulist.np/get?${params}`);
   const d2 = await r2.json();
   const items = d2?.data?.diff || [];
-  return items.map((item: any) => {
-    const code = item.f12;
-    if (market === "hk") return code.toString().padStart(5, "0") + ".HK";
-    return code.startsWith("6") ? code + ".SH" : code + ".SZ";
-  });
+  const symbols: string[] = [];
+  const names: Record<string,string> = {};
+  for (const item of items) {
+    const code = item.f12 || "";
+    const name = item.f14 || "";
+    if (!code) continue;
+    let sym = "";
+    if (market === "hk") {
+      sym = code.toString().padStart(5, "0") + ".HK";
+    } else {
+      sym = code.startsWith("6") ? code + ".SH" : code + ".SZ";
+    }
+    symbols.push(sym);
+    names[sym] = name || sym;
+  }
+  return { symbols, names };
 }
 
 export function Screener() {
@@ -51,12 +62,14 @@ export function Screener() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
+  const [names, setNames] = useState<Record<string,string>>({});
 
   const run = useCallback(async (market: "hk" | "a") => {
     setLoading(true); setError(""); setPicks([]); setStatus("正在获取东方财富热度榜...");
     try {
       // Step 1: Fetch heat rank from Eastmoney (client-side, works from China)
-      const symbols = await fetchHeatRank(market);
+      const { symbols, names: nameMap } = await fetchHeatRank(market);
+      setNames(nameMap);
       if (!symbols.length) throw new Error("热度榜为空");
       setStatus(`获取到 ${symbols.length} 只热度股票，正在量化评分...`);
 
@@ -136,7 +149,7 @@ export function Screener() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="font-bold text-sm text-neutral-100">{pick.symbol}</span>
-                    <span className="text-xs text-neutral-400 truncate">{pick.name}</span>
+                    <span className="text-xs text-neutral-400 truncate">{names[pick.symbol] || pick.name}</span>
                   </div>
                   <div className="flex items-center gap-3 mt-0.5 text-xs">
                     <span className="font-mono text-neutral-200">{pick.price.toFixed(2)}</span>
