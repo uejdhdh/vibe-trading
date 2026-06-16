@@ -98,7 +98,7 @@ export function Screener() {
             </button>
           </div>
           <div className="flex gap-2">
-            <button onClick={() => run("a")}
+            <button onClick={() => run()}
               className="px-3 py-1.5 rounded-lg text-xs font-medium bg-orange-500 text-white">A股</button>
           </div>
         </div>
