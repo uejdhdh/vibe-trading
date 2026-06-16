@@ -222,6 +222,20 @@ def _get_data(symbol: str) -> tuple[list[float] | None, str, float, float, float
     except Exception:
         pass
 
+    # Fallback: Sina Finance for A-shares
+    if not closes and symbol.endswith((".SH", ".SZ")):
+        try:
+            import requests
+            code = symbol.replace(".SH", "").replace(".SZ", "")
+            mkt = "sh" if symbol.endswith(".SH") else "sz"
+            hist_url = f"https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={mkt}{code}&scale=240&ma=no&datalen=60"
+            hr = requests.get(hist_url, headers={"Referer": "https://finance.sina.com.cn"}, timeout=10)
+            if hr.status_code == 200:
+                hist = hr.json()
+                closes = [float(d["close"]) for d in hist if d.get("close")]
+        except Exception:
+            pass
+
     # Fallback: try yfinance history
     if not closes:
         try:
