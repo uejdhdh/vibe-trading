@@ -14,23 +14,16 @@ const FACTORS = [
   { key: "volume", label: "放量" }, { key: "value", label: "估值" },
 ];
 
-async function fetchHeatRank(market: "hk" | "a"): Promise<{symbols: string[], names: Record<string,string>}> {
-  const url = market === "hk"
-    ? "https://emappdata.eastmoney.com/stockrank/getAllCurrHkUsList"
-    : "https://emappdata.eastmoney.com/stockrank/getAllCurrentList";
-  const body = market === "hk"
-    ? { appId: "appId01", globalId: "786e4c21-70dc-435a-93bb-38", marketType: "000003", pageNo: 1, pageSize: 50 }
-    : { appId: "appId01", globalId: "786e4c21-70dc-435a-93bb-38", marketType: "", pageNo: 1, pageSize: 50 };
-
-  const r1 = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+async function fetchHeatRank(): Promise<{symbols: string[], names: Record<string,string>}> {
+  const body = { appId: "appId01", globalId: "786e4c21-70dc-435a-93bb-38", marketType: "", pageNo: 1, pageSize: 50 };
+  const r1 = await fetch("https://emappdata.eastmoney.com/stockrank/getAllCurrentList", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
   const d1 = await r1.json();
   if (!d1.data) throw new Error("热度榜请求失败");
   const codes: string[] = d1.data.map((item: any) => item.sc);
 
-  // Step 2: get symbols + Chinese names
-  const marks = market === "hk"
-    ? codes.map((c: string) => "116." + c.slice(3))
-    : codes.map((c: string) => (c.includes("SZ") ? "0." + c.slice(2) : "1." + c.slice(2)));
+  const marks = codes.map((c: string) => (c.includes("SZ") ? "0." + c.slice(2) : "1." + c.slice(2)));
   const params = new URLSearchParams({
     ut: "f057cbcbce2a86e2866ab8877db1d059", fltt: "2", invt: "2",
     fields: "f12,f14", secids: marks.join(","),
@@ -44,12 +37,7 @@ async function fetchHeatRank(market: "hk" | "a"): Promise<{symbols: string[], na
     const code = item.f12 || "";
     const name = item.f14 || "";
     if (!code) continue;
-    let sym = "";
-    if (market === "hk") {
-      sym = code.toString().padStart(5, "0") + ".HK";
-    } else {
-      sym = code.startsWith("6") ? code + ".SH" : code + ".SZ";
-    }
+    const sym = code.startsWith("6") ? code + ".SH" : code + ".SZ";
     symbols.push(sym);
     names[sym] = name || sym;
   }
@@ -57,28 +45,25 @@ async function fetchHeatRank(market: "hk" | "a"): Promise<{symbols: string[], na
 }
 
 export function Screener() {
-  const [universe, setUniverse] = useState<"hk" | "a">("hk");
   const [picks, setPicks] = useState<Pick[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
   const [names, setNames] = useState<Record<string,string>>({});
 
-  const run = useCallback(async (market: "hk" | "a") => {
-    setLoading(true); setError(""); setPicks([]); setStatus("正在获取东方财富热度榜...");
+  const run = useCallback(async () => {
+    setLoading(true); setError(""); setPicks([]); setStatus("正在获取同花顺热度榜...");
     try {
-      // Step 1: Fetch heat rank from Eastmoney (client-side, works from China)
-      const { symbols, names: nameMap } = await fetchHeatRank(market);
+      const { symbols, names: nameMap } = await fetchHeatRank();
       setNames(nameMap);
       if (!symbols.length) throw new Error("热度榜为空");
       setStatus(`获取到 ${symbols.length} 只热度股票，正在量化评分...`);
 
-      // Step 2: Send to our server for scoring
       const token = localStorage.getItem("ot_user_token") || "";
       const res = await fetch("/screener/score", {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-        body: JSON.stringify({ symbols, universe: market }),
+        body: JSON.stringify({ symbols, universe: "a" }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -107,16 +92,14 @@ export function Screener() {
               </h2>
               <p className="text-[10px] text-neutral-400 mt-0.5">东方财富热度榜 → 八因子量化精排</p>
             </div>
-            <button onClick={() => run(universe)} disabled={loading}
+            <button onClick={() => run()} disabled={loading}
               className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-40 transition-colors">
               <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} /> 筛选
             </button>
           </div>
           <div className="flex gap-2">
-            {[{ key: "hk", label: "港股" }, { key: "a", label: "A股" }].map((u: any) => (
-              <button key={u.key} onClick={() => { setUniverse(u.key); run(u.key); }}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${universe === u.key ? "bg-orange-500 text-white" : "bg-neutral-800 text-neutral-300 hover:bg-neutral-700"}`}>{u.label}</button>
-            ))}
+            <button onClick={() => run("a")}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-orange-500 text-white">A股</button>
           </div>
         </div>
       </div>
