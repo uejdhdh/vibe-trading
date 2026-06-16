@@ -6,9 +6,6 @@ const Agent = lazy(() => import("@/pages/Agent").then((m) => ({ default: m.Agent
 const Settings = lazy(() =>
   import("@/pages/Settings").then((m) => ({ default: m.Settings })),
 );
-const Monitor = lazy(() =>
-  import("@/pages/Monitor").then((m) => ({ default: m.Monitor })),
-);
 const Screener = lazy(() =>
   import("@/pages/Screener").then((m) => ({ default: m.Screener })),
 );
@@ -35,7 +32,6 @@ export const router = createBrowserRouter([
     children: [
       { path: "/", element: <Navigate to="/agent" replace /> },
       { path: "/agent", element: wrap(Agent) },
-      { path: "/monitor", element: wrap(Monitor) },
       { path: "/screener", element: wrap(Screener) },
       { path: "/settings", element: wrap(Settings) },
     ],

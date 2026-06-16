@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { Link, Outlet, useSearchParams } from "react-router-dom";
-import { Plus, Settings, Trash2, Pencil, PanelLeft, MessageSquare, LogOut, Activity, Trophy } from "lucide-react";
+import { Plus, Settings, Trash2, Pencil, PanelLeft, MessageSquare, LogOut, Trophy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api, type SessionItem } from "@/lib/api";
 import { useAgentStore } from "@/stores/agent";
@@ -80,9 +80,6 @@ export function Layout() {
         <div className="px-3 pb-1 space-y-0.5">
           <Link to="/screener" onClick={() => setOpen(false)} className="flex items-center gap-2.5 w-full rounded-xl px-3 py-2 text-sm text-neutral-400 hover:text-neutral-100 hover:bg-neutral-800/50 transition-all">
             <Trophy className="h-4 w-4" /> 每日选股
-          </Link>
-          <Link to="/monitor" onClick={() => setOpen(false)} className="flex items-center gap-2.5 w-full rounded-xl px-3 py-2 text-sm text-neutral-400 hover:text-neutral-100 hover:bg-neutral-800/50 transition-all">
-            <Activity className="h-4 w-4" /> 实时监控
           </Link>
         </div>
 
