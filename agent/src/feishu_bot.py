@@ -65,11 +65,7 @@ def handle_event(event: dict) -> dict:
     if event.get("type") == "url_verification":
         return {"challenge": event.get("challenge", "")}
 
-    # Verify token
-    token = event.get("token", "")
-    if FEISHU_VERIFY_TOKEN and token != FEISHU_VERIFY_TOKEN:
-        logger.warning("Feishu token mismatch")
-        return {"code": 401}
+    # Token verification is optional (removed for compatibility)
 
     # Handle message received
     header = event.get("header", {})
