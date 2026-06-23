@@ -3232,6 +3232,25 @@ async def screener(universe: str, top: int = Query(6, ge=5, le=10)):
 
 
 # ============================================================================
+# Feishu Bot — receive messages, reply via agent
+# ============================================================================
+
+from src.feishu_bot import handle_event as feishu_handle_event
+
+
+@app.post("/feishu/event")
+async def feishu_event(request: Request):
+    """Feishu event callback — receive messages, trigger agent, reply."""
+    try:
+        body = await request.json()
+        result = feishu_handle_event(body)
+        return result
+    except Exception as e:
+        logger.exception("Feishu event error")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
 # Alpha Zoo routes (Web UI) — defined in src/api/alpha_routes.py
 # ============================================================================
 
