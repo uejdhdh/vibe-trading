@@ -10,8 +10,8 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-FEISHU_APP_ID = os.getenv("FEISHU_APP_ID", "")
-FEISHU_APP_SECRET = os.getenv("FEISHU_APP_SECRET", "")
+FEISHU_APP_ID = os.getenv("FEISHU_APP_ID", "") or "cli_aab084c3f27b1cd7"
+FEISHU_APP_SECRET = os.getenv("FEISHU_APP_SECRET", "") or "91OEzUZby01X4ttbFPRmDeftv8njqZ5l"
 FEISHU_VERIFY_TOKEN = os.getenv("FEISHU_VERIFY_TOKEN", "")
 
 _token_cache: dict[str, Any] = {"token": "", "expires_at": 0}
